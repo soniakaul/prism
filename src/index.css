@@ -1,0 +1,54 @@
+@import url("https://fonts.googleapis.com/css2?family=Agdasima:wght@400;700&family=Inter:wght@400;500;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #111210;
+  --surface: #191a18;
+  --surface2: #212320;
+  --border: #2c2e2b;
+  --text: #e8e4dc;
+  --text-dim: #5a5c58;
+  --text-mid: #8a8c86;
+  --nav-h: 72px;
+  --font-display: "Agdasima", sans-serif;
+  --font-body: "Inter", sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  overflow: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 3px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}
+
+button,
+input,
+textarea,
+select {
+  font-family: inherit;
+}
