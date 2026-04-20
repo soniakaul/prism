@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase, DEV_MODE, DEV_USER_ID } from "../lib/supabase";
 
 const COLORS = [
   "#c87941",
@@ -61,9 +61,7 @@ export default function Projects({ active }) {
 
   async function addProject() {
     if (!newName.trim()) return;
-    const {
-      data: { user },
-    } = (await DEV_MODE)
+    const user = DEV_MODE
       ? { id: DEV_USER_ID }
       : (await supabase.auth.getUser()).data.user;
     await supabase

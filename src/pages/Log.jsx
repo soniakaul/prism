@@ -45,9 +45,7 @@ export default function Log({ active, onSuccess }) {
   async function submit() {
     if (!selProj) return;
     setLoading(true);
-    const {
-      data: { user },
-    } = (await DEV_MODE)
+    const user = DEV_MODE
       ? { id: DEV_USER_ID }
       : (await supabase.auth.getUser()).data.user;
     const { error } = await supabase.from("sessions").insert({
