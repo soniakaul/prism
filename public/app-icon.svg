@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <!-- black squircle: rx 114 ≈ iOS standard (~22.4% of side) -->
+  <rect width="512" height="512" rx="114" fill="#000000"/>
+  <!-- equilateral triangle, bounding box (including dots) centered at canvas center -->
+  <!-- top dot edge y=111, bottom dot edge y=401 → 111px padding top & bottom -->
+  <polygon points="256,151 377,361 135,361" stroke="#2c2e2b" stroke-width="4" fill="none" stroke-linejoin="round"/>
+  <!-- vertex dots: brass · lilac · slate -->
+  <circle cx="256" cy="151" r="40" fill="#c87941"/>
+  <circle cx="135" cy="361" r="40" fill="#8a7fbe"/>
+  <circle cx="377" cy="361" r="40" fill="#5e8faa"/>
+</svg>

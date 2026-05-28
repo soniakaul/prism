@@ -9,8 +9,11 @@ ReactDOM.createRoot(document.getElementById("root")).render(
   </React.StrictMode>,
 );
 
+// Unregister any previously-installed service worker.
+// The empty SW interfered with OAuth callback URL processing in standalone PWA mode.
+// Modern Chrome doesn't require an SW for installability — manifest + HTTPS is enough.
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch(() => {});
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((reg) => reg.unregister());
   });
 }
