@@ -1,6 +1,7 @@
 # Prism
 
 A personal build log. Track time across projects with a contribution grid where each project gets its own color.
+
 Deployed at: https://prism-unlock-productivity.vercel.app/
 
 ## Stack
