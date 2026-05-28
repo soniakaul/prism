@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase, DEV_MODE, DEV_USER_ID } from "../lib/supabase";
+import * as db from "../lib/db";
 
 const DURATIONS = [
   { label: "15m", value: 15 },
@@ -30,14 +30,10 @@ export default function Log({ active, onSuccess }) {
 
   useEffect(() => {
     if (!active) return;
-    supabase
-      .from("projects")
-      .select("*")
-      .order("created_at")
-      .then(({ data }) => {
-        setProjects(data || []);
-        if (data?.length && !selProj) setSelProj(data[0].id);
-      });
+    db.getProjects().then((data) => {
+      setProjects(data);
+      if (data.length && !selProj) setSelProj(data[0].id);
+    });
   }, [active]);
 
   const activeProj = projects.find((p) => p.id === selProj);
@@ -45,19 +41,15 @@ export default function Log({ active, onSuccess }) {
   async function submit() {
     if (!selProj) return;
     setLoading(true);
-    const user = DEV_MODE
-      ? { id: DEV_USER_ID }
-      : (await supabase.auth.getUser()).data.user;
-    const { error } = await supabase.from("sessions").insert({
-      user_id: user.id,
+    const res = await db.addSession({
       project_id: selProj,
       duration_minutes: selDur,
       intensity: selInt,
-      note: note || null,
+      note,
       date: localDate(),
     });
     setLoading(false);
-    if (!error) {
+    if (!res?.error) {
       setNote("");
       setBurst(true);
       setTimeout(() => {
@@ -92,7 +84,7 @@ export default function Log({ active, onSuccess }) {
             marginBottom: 6,
           }}
         >
-          Prism · Record
+          <span style={{ textTransform: "none" }}>prism</span> · Record
         </div>
         <div
           style={{

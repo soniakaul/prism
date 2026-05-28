@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { supabase } from "../lib/supabase";
+import { useState, useEffect, useRef } from "react";
+import * as db from "../lib/db";
 
 const DURATIONS = [
   { label: "15m", value: 15 },
@@ -27,17 +27,38 @@ export default function Activity({ active }) {
   const [editInt, setEditInt] = useState(2);
   const [editNote, setEditNote] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const gridWrapRef = useRef(null);
+  const [dims, setDims] = useState({ weeks: 52, cell: 14 });
 
   useEffect(() => {
     if (!active) return;
     fetchData();
   }, [active]);
 
+  useEffect(() => {
+    const el = gridWrapRef.current;
+    if (!el) return;
+    const GAP = 3;
+    const DAY_LABEL_COL = 14 + GAP; // 17
+    const measure = () => {
+      const w = el.clientWidth;
+      let weeks;
+      if (w < 700) weeks = 13;
+      else if (w < 1100) weeks = 26;
+      else weeks = 52;
+      const cell = Math.floor((w - DAY_LABEL_COL - weeks * GAP) / weeks);
+      setDims({ weeks, cell: Math.max(8, Math.min(cell, 28)) });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   async function fetchData() {
-    const { data: proj } = await supabase.from("projects").select("*");
-    const { data: sess } = await supabase.from("sessions").select("*");
-    setProjects(proj || []);
-    setSessions(sess || []);
+    const [proj, sess] = await Promise.all([db.getProjects(), db.getSessions()]);
+    setProjects(proj);
+    setSessions(sess);
   }
 
   const gridMap = {};
@@ -54,12 +75,13 @@ export default function Activity({ active }) {
     }
   });
 
-  // 52 weeks GitHub style
+  // adaptive: WEEKS depends on container width (see ResizeObserver above)
   const today = new Date();
+  const WEEKS = dims.weeks;
   const weeks = [];
   const start = new Date(today);
-  start.setDate(today.getDate() - (52 * 7 - 1));
-  for (let w = 0; w < 52; w++) {
+  start.setDate(today.getDate() - (WEEKS * 7 - 1));
+  for (let w = 0; w < WEEKS; w++) {
     const col = [];
     for (let d = 0; d < 7; d++) {
       const date = new Date(start);
@@ -68,6 +90,8 @@ export default function Activity({ active }) {
     }
     weeks.push(col);
   }
+  const timeframe =
+    WEEKS >= 52 ? "Past year" : WEEKS >= 26 ? "Past 6 months" : "Past 3 months";
 
   const totalHours = sessions.reduce((a, s) => a + s.duration_minutes, 0) / 60;
   const thisMonth = sessions.filter((s) =>
@@ -97,9 +121,8 @@ export default function Activity({ active }) {
     "Dec",
   ];
   const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
-  const WEEKS = 52;
   const GAP = 3;
-  const CELL = Math.floor((window.innerWidth - 104 - 24 - WEEKS * GAP) / WEEKS);
+  const CELL = dims.cell;
 
   function openCell(date) {
     const daySessions = sessions.filter((s) => s.date === date);
@@ -118,30 +141,23 @@ export default function Activity({ active }) {
   }
 
   async function saveEdit() {
-    await supabase
-      .from("sessions")
-      .update({
-        duration_minutes: editDur,
-        intensity: editInt,
-        note: editNote || null,
-      })
-      .eq("id", editing.id);
+    await db.updateSession(editing.id, {
+      duration_minutes: editDur,
+      intensity: editInt,
+      note: editNote,
+    });
     setEditing(null);
     await fetchData();
-    const updated =
-      (await supabase.from("sessions").select("*").eq("date", modal.date))
-        .data || [];
+    const updated = await db.getSessionsByDate(modal.date);
     setModal((m) => ({ ...m, sessions: updated }));
   }
 
   async function deleteSession(id) {
-    await supabase.from("sessions").delete().eq("id", id);
+    await db.deleteSession(id);
     setConfirmDelete(null);
     setEditing(null);
     await fetchData();
-    const updated =
-      (await supabase.from("sessions").select("*").eq("date", modal.date))
-        .data || [];
+    const updated = await db.getSessionsByDate(modal.date);
     if (updated.length === 0) setModal(null);
     else setModal((m) => ({ ...m, sessions: updated }));
   }
@@ -157,7 +173,7 @@ export default function Activity({ active }) {
           position: "absolute",
           inset: 0,
           overflowY: "auto",
-          padding: "48px 52px 32px",
+          padding: "clamp(28px, 5vw, 48px) clamp(20px, 4vw, 52px) 32px",
           opacity: active ? 1 : 0,
           transform: active ? "translateY(0)" : "translateY(12px)",
           pointerEvents: active ? "all" : "none",
@@ -174,7 +190,7 @@ export default function Activity({ active }) {
               marginBottom: 6,
             }}
           >
-            Prism · {months[today.getMonth()]} {today.getFullYear()}
+            <span style={{ textTransform: "none" }}>prism</span> · {timeframe}
           </div>
           <div
             style={{
@@ -190,7 +206,7 @@ export default function Activity({ active }) {
           </div>
         </div>
 
-        <div style={{ overflowX: "100%" }}>
+        <div ref={gridWrapRef} style={{ width: "100%" }}>
           <div style={{ display: "flex", marginLeft: 24, marginBottom: 6 }}>
             {weeks.map((week, wi) => {
               const firstDay = new Date(week[0] + "T12:00:00");

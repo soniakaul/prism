@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { supabase, DEV_MODE, DEV_USER_ID } from "./lib/supabase";
+import { supabase, DEV_MODE } from "./lib/supabase";
+import { isGuest, enterGuest, exitGuest } from "./lib/db";
 import Activity from "./pages/Activity";
 import Projects from "./pages/Projects";
 import Log from "./pages/Log";
@@ -8,6 +9,7 @@ import BottomNav from "./components/BottomNav";
 
 export default function App() {
   const [session, setSession] = useState(null);
+  const [guest, setGuest] = useState(isGuest());
   const [page, setPage] = useState("activity");
   const [loading, setLoading] = useState(true);
 
@@ -23,6 +25,16 @@ export default function App() {
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  function startGuest() {
+    enterGuest();
+    setGuest(true);
+  }
+  function leaveGuest() {
+    exitGuest();
+    setGuest(false);
+    setPage("activity");
+  }
 
   if (loading)
     return (
@@ -46,12 +58,12 @@ export default function App() {
             WebkitTextFillColor: "transparent",
           }}
         >
-          PRISM
+          prism
         </div>
       </div>
     );
 
-  if (!DEV_MODE && !session) return <Auth />;
+  if (!DEV_MODE && !session && !guest) return <Auth onGuest={startGuest} />;
 
   return (
     <div
@@ -65,14 +77,19 @@ export default function App() {
         <Activity active={page === "activity"} />
         <Projects active={page === "projects"} onNavigate={setPage} />
         <Log active={page === "log"} onSuccess={() => setPage("activity")} />
-        <Account active={page === "account"} session={session} />
+        <Account
+          active={page === "account"}
+          session={session}
+          guest={guest}
+          onLeaveGuest={leaveGuest}
+        />
       </div>
       <BottomNav current={page} onChange={setPage} />
     </div>
   );
 }
 
-function Auth() {
+function Auth({ onGuest }) {
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -85,6 +102,7 @@ function Auth() {
   }
 
   async function sendMagicLink() {
+    if (!email) return;
     setLoading(true);
     const { error } = await supabase.auth.signInWithOtp({
       email,
@@ -97,50 +115,62 @@ function Auth() {
   return (
     <div
       style={{
-        height: "100vh",
+        minHeight: "100vh",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         background: "var(--bg)",
-        padding: "40px",
-        gap: "32px",
+        padding: "40px 24px",
       }}
     >
-      {/* logo */}
-      <div style={{ textAlign: "center" }}>
-        <div
-          style={{
-            fontSize: 48,
-            fontWeight: 700,
-            letterSpacing: "0.12em",
-            background: "linear-gradient(135deg, #c87941, #8a7fbe, #5e8faa)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            marginBottom: 8,
-          }}
-        >
-          PRISM
-        </div>
-        <div
-          style={{
-            fontSize: 10,
-            letterSpacing: "0.3em",
-            color: "var(--text-dim)",
-            textTransform: "uppercase",
-          }}
-        >
-          your build log
-        </div>
+      {/* title */}
+      <div
+        style={{
+          fontSize: 56,
+          fontWeight: 700,
+          fontFamily: "Agdasima, sans-serif",
+          letterSpacing: "0.12em",
+          lineHeight: 1,
+          background: "linear-gradient(135deg, #c87941, #8a7fbe, #5e8faa)",
+          WebkitBackgroundClip: "text",
+          WebkitTextFillColor: "transparent",
+          marginBottom: 14,
+        }}
+      >
+        prism
       </div>
+
+      {/* tagline */}
+      <div
+        style={{
+          fontSize: 10,
+          letterSpacing: "0.35em",
+          color: "var(--text-dim)",
+          textTransform: "uppercase",
+          marginBottom: 24,
+        }}
+      >
+        your work log
+      </div>
+
+      {/* short rule */}
+      <div
+        style={{
+          width: 80,
+          height: 1,
+          background: "var(--border)",
+          marginBottom: 32,
+        }}
+      />
 
       <div
         style={{
           display: "flex",
           flexDirection: "column",
-          gap: 12,
+          gap: 14,
           width: "100%",
-          maxWidth: 340,
+          maxWidth: 380,
         }}
       >
         {/* Google */}
@@ -150,26 +180,25 @@ function Auth() {
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            gap: 12,
-            background: "var(--surface)",
+            gap: 14,
+            background: "var(--surface2)",
             border: "1px solid var(--border)",
             borderRadius: 8,
-            padding: "14px 28px",
+            padding: "16px 28px",
             cursor: "pointer",
-            fontFamily: "Agdasima, sans-serif",
-            fontSize: 14,
-            fontWeight: 700,
-            letterSpacing: "0.15em",
+            fontSize: 13,
+            fontWeight: 600,
+            letterSpacing: "0.22em",
             textTransform: "uppercase",
             color: "var(--text)",
-            transition: "border-color 0.2s",
+            transition: "border-color 0.2s, background 0.2s",
           }}
-          onMouseEnter={(e) =>
-            (e.currentTarget.style.borderColor = "var(--text-mid)")
-          }
-          onMouseLeave={(e) =>
-            (e.currentTarget.style.borderColor = "var(--border)")
-          }
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = "var(--text-mid)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = "var(--border)";
+          }}
         >
           <svg width="18" height="18" viewBox="0 0 24 24">
             <path
@@ -189,16 +218,23 @@ function Auth() {
               d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
             />
           </svg>
-          Continue with Google
+          Log in with Google
         </button>
 
         {/* divider */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+            margin: "4px 0",
+          }}
+        >
           <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
           <div
             style={{
-              fontSize: 9,
-              letterSpacing: "0.2em",
+              fontSize: 10,
+              letterSpacing: "0.3em",
               color: "var(--text-dim)",
               textTransform: "uppercase",
             }}
@@ -208,7 +244,7 @@ function Auth() {
           <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
         </div>
 
-        {/* Magic link */}
+        {/* email + arrow OR sent state */}
         {sent ? (
           <div
             style={{
@@ -216,27 +252,28 @@ function Auth() {
               display: "flex",
               flexDirection: "column",
               gap: 8,
+              padding: "12px 0",
             }}
           >
             <div
               style={{
-                fontSize: 14,
-                letterSpacing: "0.1em",
+                fontSize: 13,
+                letterSpacing: "0.2em",
                 color: "var(--text-mid)",
                 textTransform: "uppercase",
               }}
             >
-              Check your email ✦
+              check your email
             </div>
             <div
               style={{
                 fontSize: 11,
-                letterSpacing: "0.1em",
+                letterSpacing: "0.12em",
                 color: "var(--text-dim)",
                 textTransform: "uppercase",
               }}
             >
-              Magic link sent to {email}
+              log-in link sent to {email}
             </div>
             <button
               onClick={() => setSent(false)}
@@ -244,19 +281,18 @@ function Auth() {
                 background: "transparent",
                 border: "none",
                 color: "var(--text-dim)",
-                fontFamily: "Agdasima, sans-serif",
                 fontSize: 11,
-                letterSpacing: "0.15em",
+                letterSpacing: "0.18em",
                 textTransform: "uppercase",
                 cursor: "pointer",
-                marginTop: 4,
+                marginTop: 6,
               }}
             >
-              ← Try again
+              ← try again
             </button>
           </div>
         ) : (
-          <>
+          <div style={{ display: "flex", gap: 8 }}>
             <input
               type="email"
               placeholder="your@email.com"
@@ -264,40 +300,68 @@ function Auth() {
               onChange={(e) => setEmail(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendMagicLink()}
               style={{
+                flex: 1,
                 background: "var(--surface)",
                 border: "1px solid var(--border)",
                 borderRadius: 6,
                 padding: "14px 16px",
-                fontFamily: "Agdasima, sans-serif",
                 fontSize: 14,
-                letterSpacing: "0.05em",
+                letterSpacing: "0.04em",
                 color: "var(--text)",
                 outline: "none",
-                width: "100%",
               }}
             />
             <button
               onClick={sendMagicLink}
               disabled={loading || !email}
+              aria-label="Send log-in link"
               style={{
+                width: 52,
                 background: "var(--text)",
                 color: "var(--bg)",
                 border: "none",
                 borderRadius: 6,
-                padding: "14px",
-                fontFamily: "Agdasima, sans-serif",
-                fontSize: 14,
-                fontWeight: 700,
-                letterSpacing: "0.2em",
-                textTransform: "uppercase",
-                cursor: "pointer",
-                opacity: loading || !email ? 0.5 : 1,
+                fontSize: 20,
+                lineHeight: 1,
+                cursor: loading || !email ? "not-allowed" : "pointer",
+                opacity: loading || !email ? 0.35 : 1,
+                transition: "opacity 0.2s",
               }}
             >
-              {loading ? "Sending..." : "Send Magic Link"}
+              →
             </button>
-          </>
+          </div>
         )}
+
+        {/* guest link */}
+        <div style={{ textAlign: "center", marginTop: 20 }}>
+          <button
+            onClick={onGuest}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "var(--text-mid)",
+              fontSize: 14,
+              fontStyle: "italic",
+              textDecoration: "underline",
+              textDecorationColor: "var(--text-dim)",
+              textUnderlineOffset: 5,
+              cursor: "pointer",
+              padding: "6px 10px",
+              transition: "color 0.2s, text-decoration-color 0.2s",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = "var(--text)";
+              e.currentTarget.style.textDecorationColor = "var(--text-mid)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = "var(--text-mid)";
+              e.currentTarget.style.textDecorationColor = "var(--text-dim)";
+            }}
+          >
+            continue as guest →
+          </button>
+        </div>
       </div>
     </div>
   );

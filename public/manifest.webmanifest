@@ -1,0 +1,19 @@
+{
+  "name": "prism",
+  "short_name": "prism",
+  "description": "Your build log — track sessions across projects.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#111210",
+  "theme_color": "#111210",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

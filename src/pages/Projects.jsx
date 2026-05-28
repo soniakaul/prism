@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase, DEV_MODE, DEV_USER_ID } from "../lib/supabase";
+import * as db from "../lib/db";
 
 const COLORS = [
   "#c87941",
@@ -47,26 +47,14 @@ export default function Projects({ active }) {
   }, [active]);
 
   async function fetchData() {
-    const { data: proj } = await supabase
-      .from("projects")
-      .select("*")
-      .order("created_at");
-    const { data: sess } = await supabase
-      .from("sessions")
-      .select("*")
-      .order("date", { ascending: false });
-    setProjects(proj || []);
-    setSessions(sess || []);
+    const [proj, sess] = await Promise.all([db.getProjects(), db.getSessions()]);
+    setProjects(proj);
+    setSessions(sess);
   }
 
   async function addProject() {
     if (!newName.trim()) return;
-    const user = DEV_MODE
-      ? { id: DEV_USER_ID }
-      : (await supabase.auth.getUser()).data.user;
-    await supabase
-      .from("projects")
-      .insert({ name: newName.trim(), color: newColor, user_id: user.id });
+    await db.addProject({ name: newName.trim(), color: newColor });
     setNewName("");
     setAdding(false);
     fetchData();
@@ -82,17 +70,13 @@ export default function Projects({ active }) {
 
   async function saveEdit(id) {
     if (!editName.trim()) return;
-    await supabase
-      .from("projects")
-      .update({ name: editName.trim(), color: editColor })
-      .eq("id", id);
+    await db.updateProject(id, { name: editName.trim(), color: editColor });
     setEditingId(null);
     fetchData();
   }
 
   async function deleteProject(id) {
-    await supabase.from("sessions").delete().eq("project_id", id);
-    await supabase.from("projects").delete().eq("id", id);
+    await db.deleteProject(id);
     setConfirmDeleteId(null);
     setEditingId(null);
     fetchData();
@@ -113,20 +97,17 @@ export default function Projects({ active }) {
   }
 
   async function saveSession() {
-    await supabase
-      .from("sessions")
-      .update({
-        duration_minutes: editDur,
-        intensity: editInt,
-        note: editNote || null,
-      })
-      .eq("id", editingSession.id);
+    await db.updateSession(editingSession.id, {
+      duration_minutes: editDur,
+      intensity: editInt,
+      note: editNote,
+    });
     setEditingSession(null);
     fetchData();
   }
 
   async function deleteSession(id) {
-    await supabase.from("sessions").delete().eq("id", id);
+    await db.deleteSession(id);
     setConfirmDeleteSession(null);
     setEditingSession(null);
     fetchData();
@@ -175,7 +156,7 @@ export default function Projects({ active }) {
             marginBottom: 6,
           }}
         >
-          Prism · Your Work
+          <span style={{ textTransform: "none" }}>prism</span> · Your Work
         </div>
         <div
           style={{
