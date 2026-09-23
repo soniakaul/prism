@@ -1,23 +1,9 @@
 import { useState, useEffect } from "react";
 import * as db from "../lib/db";
-
-const DURATIONS = [
-  { label: "15m", value: 15 },
-  { label: "30m", value: 30 },
-  { label: "1h", value: 60 },
-  { label: "1.5h", value: 90 },
-  { label: "2h", value: 120 },
-  { label: "3h+", value: 180 },
-];
-
-const INTENSITIES = ["Light", "Focused", "Deep", "Locked In"];
-
-function localDate(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+import { toDateKey } from "../lib/dates";
+import { DURATIONS, INTENSITIES, INTENSITY_OPACITY } from "../lib/constants";
+import { reportError } from "../lib/toast";
+import Page from "../components/Page";
 
 export default function Log({ active, onSuccess }) {
   const [projects, setProjects] = useState([]);
@@ -30,10 +16,15 @@ export default function Log({ active, onSuccess }) {
 
   useEffect(() => {
     if (!active) return;
-    db.getProjects().then((data) => {
-      setProjects(data);
-      if (data.length && !selProj) setSelProj(data[0].id);
-    });
+    db.getProjects()
+      .then((data) => {
+        setProjects(data);
+        // keep the current pick only if that project still exists
+        setSelProj((cur) =>
+          data.some((p) => p.id === cur) ? cur : (data[0]?.id ?? null),
+        );
+      })
+      .catch((err) => reportError("Couldn't load your projects", err));
   }, [active]);
 
   const activeProj = projects.find((p) => p.id === selProj);
@@ -41,64 +32,31 @@ export default function Log({ active, onSuccess }) {
   async function submit() {
     if (!selProj) return;
     setLoading(true);
-    const res = await db.addSession({
-      project_id: selProj,
-      duration_minutes: selDur,
-      intensity: selInt,
-      note,
-      date: localDate(),
-    });
-    setLoading(false);
-    if (!res?.error) {
-      setNote("");
-      setBurst(true);
-      setTimeout(() => {
-        setBurst(false);
-        onSuccess();
-      }, 1200);
+    try {
+      await db.addSession({
+        project_id: selProj,
+        duration_minutes: selDur,
+        intensity: selInt,
+        note,
+        date: toDateKey(),
+      });
+    } catch (err) {
+      reportError("Couldn't save your session. Try again", err);
+      return;
+    } finally {
+      setLoading(false);
     }
+    setNote("");
+    setBurst(true);
+    setTimeout(() => {
+      setBurst(false);
+      onSuccess();
+    }, 1200);
   }
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        overflowY: "auto",
-        padding: "48px 52px 32px",
-        opacity: active ? 1 : 0,
-        transform: active ? "translateY(0)" : "translateY(12px)",
-        pointerEvents: active ? "all" : "none",
-        transition: "opacity 0.3s, transform 0.3s",
-      }}
-    >
+    <Page active={active} eyebrow="Record" title="Log Session">
       {burst && <Burst color={activeProj?.color || "#c87941"} />}
-
-      <div style={{ marginBottom: 36 }}>
-        <div
-          style={{
-            fontSize: 11,
-            letterSpacing: "0.35em",
-            textTransform: "uppercase",
-            color: "var(--text-dim)",
-            marginBottom: 6,
-          }}
-        >
-          <span style={{ textTransform: "none" }}>prism</span> · Record
-        </div>
-        <div
-          style={{
-            fontSize: 40,
-            fontWeight: 700,
-            fontFamily: "Agdasima, sans-serif",
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-            lineHeight: 1,
-          }}
-        >
-          Log Session
-        </div>
-      </div>
 
       <div
         style={{
@@ -212,7 +170,7 @@ export default function Log({ active, onSuccess }) {
                       borderRadius: 4,
                       cursor: "pointer",
                       background: color,
-                      opacity: level * 0.25,
+                      opacity: INTENSITY_OPACITY[level],
                       border:
                         selInt === level
                           ? "2px solid var(--text)"
@@ -282,7 +240,7 @@ export default function Log({ active, onSuccess }) {
           {loading ? "Logging..." : "Log"}
         </button>
       </div>
-    </div>
+    </Page>
   );
 }
 

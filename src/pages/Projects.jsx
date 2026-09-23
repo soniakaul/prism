@@ -14,15 +14,14 @@ const COLORS = [
   "#6e8fa8",
 ];
 
-const DURATIONS = [
-  { label: "15m", value: 15 },
-  { label: "30m", value: 30 },
-  { label: "1h", value: 60 },
-  { label: "1.5h", value: 90 },
-  { label: "2h", value: 120 },
-  { label: "3h+", value: 180 },
-];
-const INTENSITIES = ["Light", "Focused", "Deep", "Locked In"];
+import {
+  DURATIONS,
+  INTENSITIES,
+  INTENSITY_OPACITY,
+  formatDuration,
+} from "../lib/constants";
+import { reportError } from "../lib/toast";
+import Page from "../components/Page";
 
 export default function Projects({ active }) {
   const [projects, setProjects] = useState([]);
@@ -47,14 +46,26 @@ export default function Projects({ active }) {
   }, [active]);
 
   async function fetchData() {
-    const [proj, sess] = await Promise.all([db.getProjects(), db.getSessions()]);
-    setProjects(proj);
-    setSessions(sess);
+    try {
+      const [proj, sess] = await Promise.all([
+        db.getProjects(),
+        db.getSessions(),
+      ]);
+      setProjects(proj);
+      setSessions(sess);
+    } catch (err) {
+      reportError("Couldn't load your projects", err);
+    }
   }
 
   async function addProject() {
     if (!newName.trim()) return;
-    await db.addProject({ name: newName.trim(), color: newColor });
+    try {
+      await db.addProject({ name: newName.trim(), color: newColor });
+    } catch (err) {
+      reportError("Couldn't add that project", err);
+      return;
+    }
     setNewName("");
     setAdding(false);
     fetchData();
@@ -70,13 +81,23 @@ export default function Projects({ active }) {
 
   async function saveEdit(id) {
     if (!editName.trim()) return;
-    await db.updateProject(id, { name: editName.trim(), color: editColor });
+    try {
+      await db.updateProject(id, { name: editName.trim(), color: editColor });
+    } catch (err) {
+      reportError("Couldn't save your changes", err);
+      return;
+    }
     setEditingId(null);
     fetchData();
   }
 
   async function deleteProject(id) {
-    await db.deleteProject(id);
+    try {
+      await db.deleteProject(id);
+    } catch (err) {
+      reportError("Couldn't delete that project", err);
+      return;
+    }
     setConfirmDeleteId(null);
     setEditingId(null);
     fetchData();
@@ -97,17 +118,27 @@ export default function Projects({ active }) {
   }
 
   async function saveSession() {
-    await db.updateSession(editingSession.id, {
-      duration_minutes: editDur,
-      intensity: editInt,
-      note: editNote,
-    });
+    try {
+      await db.updateSession(editingSession.id, {
+        duration_minutes: editDur,
+        intensity: editInt,
+        note: editNote,
+      });
+    } catch (err) {
+      reportError("Couldn't save your changes", err);
+      return;
+    }
     setEditingSession(null);
     fetchData();
   }
 
   async function deleteSession(id) {
-    await db.deleteSession(id);
+    try {
+      await db.deleteSession(id);
+    } catch (err) {
+      reportError("Couldn't delete that session", err);
+      return;
+    }
     setConfirmDeleteSession(null);
     setEditingSession(null);
     fetchData();
@@ -129,49 +160,8 @@ export default function Projects({ active }) {
     return sessions.filter((s) => s.project_id === pid);
   }
 
-  function formatDur(mins) {
-    return mins < 60 ? `${mins}m` : `${mins / 60}h`;
-  }
-
   return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        overflowY: "auto",
-        padding: "48px 52px 32px",
-        opacity: active ? 1 : 0,
-        transform: active ? "translateY(0)" : "translateY(12px)",
-        pointerEvents: active ? "all" : "none",
-        transition: "opacity 0.3s, transform 0.3s",
-      }}
-    >
-      <div style={{ marginBottom: 36 }}>
-        <div
-          style={{
-            fontSize: 11,
-            letterSpacing: "0.35em",
-            textTransform: "uppercase",
-            color: "var(--text-dim)",
-            marginBottom: 6,
-          }}
-        >
-          <span style={{ textTransform: "none" }}>prism</span> · Your Work
-        </div>
-        <div
-          style={{
-            fontSize: 40,
-            fontWeight: 700,
-            fontFamily: "Agdasima, sans-serif",
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-            lineHeight: 1,
-          }}
-        >
-          Projects
-        </div>
-      </div>
-
+    <Page active={active} eyebrow="Your Work" title="Projects">
       <div
         style={{
           display: "flex",
@@ -324,7 +314,12 @@ export default function Projects({ active }) {
                     ))}
                   </div>
                   <div
-                    style={{ display: "flex", gap: 8, alignItems: "center" }}
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      alignItems: "center",
+                    }}
                   >
                     <button
                       onClick={() => saveEdit(p.id)}
@@ -364,6 +359,7 @@ export default function Projects({ active }) {
                         <div
                           style={{
                             display: "flex",
+                            flexWrap: "wrap",
                             gap: 8,
                             alignItems: "center",
                           }}
@@ -494,7 +490,7 @@ export default function Projects({ active }) {
                                     color: "var(--text-dim)",
                                   }}
                                 >
-                                  {formatDur(s.duration_minutes)} ·{" "}
+                                  {formatDuration(s.duration_minutes)} ·{" "}
                                   {INTENSITIES[s.intensity - 1]}
                                   {s.note ? ` · ${s.note}` : ""}
                                 </div>
@@ -506,7 +502,7 @@ export default function Projects({ active }) {
                                   height: 8,
                                   borderRadius: 2,
                                   background: p.color,
-                                  opacity: s.intensity * 0.25,
+                                  opacity: INTENSITY_OPACITY[s.intensity],
                                   flexShrink: 0,
                                 }}
                               />
@@ -636,7 +632,7 @@ export default function Projects({ active }) {
                                             borderRadius: 4,
                                             cursor: "pointer",
                                             background: p.color,
-                                            opacity: level * 0.25,
+                                            opacity: INTENSITY_OPACITY[level],
                                             border:
                                               editInt === level
                                                 ? "2px solid var(--text)"
@@ -692,6 +688,7 @@ export default function Projects({ active }) {
                               <div
                                 style={{
                                   display: "flex",
+                                  flexWrap: "wrap",
                                   gap: 8,
                                   alignItems: "center",
                                 }}
@@ -734,6 +731,7 @@ export default function Projects({ active }) {
                                     <div
                                       style={{
                                         display: "flex",
+                                        flexWrap: "wrap",
                                         gap: 6,
                                         alignItems: "center",
                                       }}
@@ -942,6 +940,6 @@ export default function Projects({ active }) {
           </div>
         )}
       </div>
-    </div>
+    </Page>
   );
 }

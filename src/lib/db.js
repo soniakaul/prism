@@ -40,9 +40,29 @@ function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 }
 
+// Supabase reports failures in the result instead of throwing; surface them
+// so callers can tell "no data" apart from "request failed".
+function check({ data, error }) {
+  if (error) throw error;
+  return data;
+}
+
+// PostgREST caps a response at 1,000 rows by default. Page through so older
+// sessions never silently drop out of totals.
+const PAGE = 1000;
+async function selectAll(buildQuery) {
+  const rows = [];
+  for (let from = 0; ; from += PAGE) {
+    const page = check(await buildQuery().range(from, from + PAGE - 1));
+    rows.push(...page);
+    if (page.length < PAGE) return rows;
+  }
+}
+
 async function currentUserId() {
   if (DEV_MODE) return DEV_USER_ID;
-  const { data } = await supabase.auth.getUser();
+  const { data, error } = await supabase.auth.getUser();
+  if (error) throw error;
   return data.user?.id;
 }
 
@@ -53,11 +73,7 @@ export async function getProjects() {
       (a.created_at || "").localeCompare(b.created_at || ""),
     );
   }
-  const { data } = await supabase
-    .from("projects")
-    .select("*")
-    .order("created_at");
-  return data || [];
+  return check(await supabase.from("projects").select("*").order("created_at"));
 }
 
 export async function addProject({ name, color }) {
@@ -74,7 +90,7 @@ export async function addProject({ name, color }) {
     return;
   }
   const user_id = await currentUserId();
-  await supabase.from("projects").insert({ name, color, user_id });
+  check(await supabase.from("projects").insert({ name, color, user_id }));
 }
 
 export async function updateProject(id, { name, color }) {
@@ -85,7 +101,7 @@ export async function updateProject(id, { name, color }) {
     writeG(GUEST_PROJECTS, list);
     return;
   }
-  await supabase.from("projects").update({ name, color }).eq("id", id);
+  check(await supabase.from("projects").update({ name, color }).eq("id", id));
 }
 
 export async function deleteProject(id) {
@@ -100,8 +116,8 @@ export async function deleteProject(id) {
     );
     return;
   }
-  await supabase.from("sessions").delete().eq("project_id", id);
-  await supabase.from("projects").delete().eq("id", id);
+  check(await supabase.from("sessions").delete().eq("project_id", id));
+  check(await supabase.from("projects").delete().eq("id", id));
 }
 
 // ─── SESSIONS ──────────────────────────────────────────
@@ -111,22 +127,21 @@ export async function getSessions() {
       (b.date || "").localeCompare(a.date || ""),
     );
   }
-  const { data } = await supabase
-    .from("sessions")
-    .select("*")
-    .order("date", { ascending: false });
-  return data || [];
+  // id as a tiebreaker keeps page boundaries stable within a date
+  return selectAll(() =>
+    supabase
+      .from("sessions")
+      .select("*")
+      .order("date", { ascending: false })
+      .order("id"),
+  );
 }
 
 export async function getSessionsByDate(date) {
   if (isGuest()) {
     return readG(GUEST_SESSIONS).filter((s) => s.date === date);
   }
-  const { data } = await supabase
-    .from("sessions")
-    .select("*")
-    .eq("date", date);
-  return data || [];
+  return check(await supabase.from("sessions").select("*").eq("date", date));
 }
 
 export async function addSession({
@@ -148,23 +163,22 @@ export async function addSession({
       user_id: "guest",
     });
     writeG(GUEST_SESSIONS, list);
-    return { error: null };
+    return;
   }
   const user_id = await currentUserId();
-  return await supabase.from("sessions").insert({
-    user_id,
-    project_id,
-    duration_minutes,
-    intensity,
-    note: note || null,
-    date,
-  });
+  check(
+    await supabase.from("sessions").insert({
+      user_id,
+      project_id,
+      duration_minutes,
+      intensity,
+      note: note || null,
+      date,
+    }),
+  );
 }
 
-export async function updateSession(
-  id,
-  { duration_minutes, intensity, note },
-) {
+export async function updateSession(id, { duration_minutes, intensity, note }) {
   if (isGuest()) {
     const list = readG(GUEST_SESSIONS).map((s) =>
       s.id === id
@@ -174,10 +188,12 @@ export async function updateSession(
     writeG(GUEST_SESSIONS, list);
     return;
   }
-  await supabase
-    .from("sessions")
-    .update({ duration_minutes, intensity, note: note || null })
-    .eq("id", id);
+  check(
+    await supabase
+      .from("sessions")
+      .update({ duration_minutes, intensity, note: note || null })
+      .eq("id", id),
+  );
 }
 
 export async function deleteSession(id) {
@@ -188,5 +204,5 @@ export async function deleteSession(id) {
     );
     return;
   }
-  await supabase.from("sessions").delete().eq("id", id);
+  check(await supabase.from("sessions").delete().eq("id", id));
 }

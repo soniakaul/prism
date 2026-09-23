@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { supabase, DEV_MODE } from "./lib/supabase";
 import { isGuest, enterGuest, exitGuest } from "./lib/db";
+import { reportError } from "./lib/toast";
 import Activity from "./pages/Activity";
 import Projects from "./pages/Projects";
 import Log from "./pages/Log";
@@ -40,7 +41,7 @@ export default function App() {
     return (
       <div
         style={{
-          height: "100vh",
+          height: "100dvh",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -69,13 +70,13 @@ export default function App() {
     <div
       style={{
         display: "grid",
-        gridTemplateRows: "1fr var(--nav-h)",
-        height: "100vh",
+        gridTemplateRows: "1fr calc(var(--nav-h) + var(--safe-bottom))",
+        height: "100dvh",
       }}
     >
       <div style={{ position: "relative", overflow: "hidden" }}>
         <Activity active={page === "activity"} />
-        <Projects active={page === "projects"} onNavigate={setPage} />
+        <Projects active={page === "projects"} />
         <Log active={page === "log"} onSuccess={() => setPage("activity")} />
         <Account
           active={page === "account"}
@@ -95,10 +96,11 @@ function Auth({ onGuest }) {
   const [loading, setLoading] = useState(false);
 
   async function signInWithGoogle() {
-    await supabase.auth.signInWithOAuth({
+    const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: window.location.origin },
     });
+    if (error) reportError("Couldn't start Google sign-in", error);
   }
 
   async function sendMagicLink() {
@@ -108,20 +110,22 @@ function Auth({ onGuest }) {
       email,
       options: { emailRedirectTo: window.location.origin },
     });
-    if (!error) setSent(true);
+    if (error) reportError("Couldn't send the log-in link", error);
+    else setSent(true);
     setLoading(false);
   }
 
   return (
     <div
       style={{
-        minHeight: "100vh",
+        minHeight: "100dvh",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
         justifyContent: "center",
         background: "var(--bg)",
-        padding: "40px 24px",
+        padding:
+          "calc(40px + var(--safe-top)) 24px calc(40px + var(--safe-bottom))",
       }}
     >
       {/* title */}

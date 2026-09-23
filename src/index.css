@@ -21,6 +21,11 @@
   --text-dim: #5a5c58;
   --text-mid: #8a8c86;
   --nav-h: 72px;
+  /* iPhone notch / home indicator, when installed with viewport-fit=cover */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
   --font-display: "Agdasima", sans-serif;
   --font-body: "Inter", sans-serif;
 }

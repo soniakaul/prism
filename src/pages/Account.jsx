@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
 import { clearGuestData, guestCreatedAt } from "../lib/db";
+import { reportError } from "../lib/toast";
+import Page from "../components/Page";
 
 export default function Account({ active, session, guest, onLeaveGuest }) {
   const [confirmClear, setConfirmClear] = useState(false);
@@ -18,7 +20,8 @@ export default function Account({ active, session, guest, onLeaveGuest }) {
       });
 
   async function signOut() {
-    await supabase.auth.signOut();
+    const { error } = await supabase.auth.signOut();
+    if (error) reportError("Couldn't sign out", error);
   }
 
   function handleClear() {
@@ -27,45 +30,7 @@ export default function Account({ active, session, guest, onLeaveGuest }) {
   }
 
   return (
-    <div
-      style={{
-        position: "absolute",
-        inset: 0,
-        overflowY: "auto",
-        padding: "clamp(28px, 5vw, 48px) clamp(20px, 4vw, 52px) 32px",
-        opacity: active ? 1 : 0,
-        transform: active ? "translateY(0)" : "translateY(12px)",
-        pointerEvents: active ? "all" : "none",
-        transition: "opacity 0.3s, transform 0.3s",
-      }}
-    >
-      <div style={{ marginBottom: 36 }}>
-        <div
-          style={{
-            fontSize: 11,
-            letterSpacing: "0.35em",
-            textTransform: "uppercase",
-            color: "var(--text-dim)",
-            marginBottom: 6,
-          }}
-        >
-          <span style={{ textTransform: "none" }}>prism</span> ·{" "}
-          {guest ? "Guest" : "You"}
-        </div>
-        <div
-          style={{
-            fontSize: 40,
-            fontWeight: 700,
-            fontFamily: "Agdasima, sans-serif",
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-            lineHeight: 1,
-          }}
-        >
-          Account
-        </div>
-      </div>
-
+    <Page active={active} eyebrow={guest ? "Guest" : "You"} title="Account">
       {/* avatar */}
       <div
         style={{
@@ -280,6 +245,6 @@ export default function Account({ active, session, guest, onLeaveGuest }) {
           Sign Out
         </button>
       )}
-    </div>
+    </Page>
   );
 }

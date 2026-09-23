@@ -9,7 +9,8 @@ export default function BottomNav({ current, onChange }) {
   return (
     <nav
       style={{
-        height: "var(--nav-h)",
+        height: "calc(var(--nav-h) + var(--safe-bottom))",
+        paddingBottom: "var(--safe-bottom)",
         background: "var(--surface)",
         borderTop: "1px solid var(--border)",
         display: "flex",
@@ -30,7 +31,6 @@ export default function BottomNav({ current, onChange }) {
             background: "transparent",
             cursor: "pointer",
             transition: "background 0.15s",
-            ...(current === t.id ? {} : {}),
           }}
         >
           <div

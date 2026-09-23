@@ -1,22 +1,20 @@
 import { useState, useEffect, useRef } from "react";
 import * as db from "../lib/db";
 
-const DURATIONS = [
-  { label: "15m", value: 15 },
-  { label: "30m", value: 30 },
-  { label: "1h", value: 60 },
-  { label: "1.5h", value: 90 },
-  { label: "2h", value: 120 },
-  { label: "3h+", value: 180 },
-];
-const INTENSITIES = ["Light", "Focused", "Deep", "Locked In"];
+import { toDateKey, weekColumns, monthLabels } from "../lib/dates";
+import {
+  DURATIONS,
+  INTENSITIES,
+  INTENSITY_OPACITY,
+  formatDuration,
+} from "../lib/constants";
+import { reportError } from "../lib/toast";
+import Page from "../components/Page";
 
-function localDate(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+const GAP = 3;
+const DAY_LABEL_W = 14;
+const DAY_LABEL_COL = DAY_LABEL_W + GAP;
+const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"]; // weeks start Sunday
 
 export default function Activity({ active }) {
   const [sessions, setSessions] = useState([]);
@@ -38,8 +36,6 @@ export default function Activity({ active }) {
   useEffect(() => {
     const el = gridWrapRef.current;
     if (!el) return;
-    const GAP = 3;
-    const DAY_LABEL_COL = 14 + GAP; // 17
     const measure = () => {
       const w = el.clientWidth;
       let weeks;
@@ -56,15 +52,25 @@ export default function Activity({ active }) {
   }, []);
 
   async function fetchData() {
-    const [proj, sess] = await Promise.all([db.getProjects(), db.getSessions()]);
-    setProjects(proj);
-    setSessions(sess);
+    try {
+      const [proj, sess] = await Promise.all([
+        db.getProjects(),
+        db.getSessions(),
+      ]);
+      setProjects(proj);
+      setSessions(sess);
+    } catch (err) {
+      reportError("Couldn't load your activity", err);
+    }
   }
 
+  // sessions whose project was deleted don't count anywhere
+  const known = new Set(projects.map((p) => p.id));
+  const logged = sessions.filter((s) => known.has(s.project_id));
+
   const gridMap = {};
-  sessions.forEach((s) => {
+  logged.forEach((s) => {
     const proj = projects.find((p) => p.id === s.project_id);
-    if (!proj) return;
     const existing = gridMap[s.date];
     if (!existing || s.intensity > existing.intensity) {
       gridMap[s.date] = {
@@ -76,53 +82,20 @@ export default function Activity({ active }) {
   });
 
   // adaptive: WEEKS depends on container width (see ResizeObserver above)
-  const today = new Date();
+  const todayKey = toDateKey();
   const WEEKS = dims.weeks;
-  const weeks = [];
-  const start = new Date(today);
-  start.setDate(today.getDate() - (WEEKS * 7 - 1));
-  for (let w = 0; w < WEEKS; w++) {
-    const col = [];
-    for (let d = 0; d < 7; d++) {
-      const date = new Date(start);
-      date.setDate(start.getDate() + w * 7 + d);
-      col.push(date.toISOString().split("T")[0]);
-    }
-    weeks.push(col);
-  }
+  const CELL = dims.cell;
+  const weeks = weekColumns(todayKey, WEEKS, 0);
+  // a month label needs ~32px; skip the first one if the next is closer
+  const labels = monthLabels(weeks, Math.ceil(32 / (CELL + GAP)));
   const timeframe =
     WEEKS >= 52 ? "Past year" : WEEKS >= 26 ? "Past 6 months" : "Past 3 months";
 
-  const totalHours = sessions.reduce((a, s) => a + s.duration_minutes, 0) / 60;
-  const thisMonth = sessions.filter((s) =>
-    s.date?.startsWith(localDate().slice(0, 7)),
+  const totalHours = logged.reduce((a, s) => a + s.duration_minutes, 0) / 60;
+  const thisMonth = logged.filter((s) =>
+    s.date?.startsWith(todayKey.slice(0, 7)),
   );
   const monthHours = thisMonth.reduce((a, s) => a + s.duration_minutes, 0) / 60;
-  let streak = 0;
-  const dateSet = new Set(sessions.map((s) => s.date));
-  const check = new Date();
-  while (dateSet.has(localDate(check))) {
-    streak++;
-    check.setDate(check.getDate() - 1);
-  }
-
-  const months = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-  const dayLabels = ["S", "M", "T", "W", "T", "F", "S"];
-  const GAP = 3;
-  const CELL = dims.cell;
 
   function openCell(date) {
     const daySessions = sessions.filter((s) => s.date === date);
@@ -141,25 +114,33 @@ export default function Activity({ active }) {
   }
 
   async function saveEdit() {
-    await db.updateSession(editing.id, {
-      duration_minutes: editDur,
-      intensity: editInt,
-      note: editNote,
-    });
-    setEditing(null);
-    await fetchData();
-    const updated = await db.getSessionsByDate(modal.date);
-    setModal((m) => ({ ...m, sessions: updated }));
+    try {
+      await db.updateSession(editing.id, {
+        duration_minutes: editDur,
+        intensity: editInt,
+        note: editNote,
+      });
+      setEditing(null);
+      await fetchData();
+      const updated = await db.getSessionsByDate(modal.date);
+      setModal((m) => ({ ...m, sessions: updated }));
+    } catch (err) {
+      reportError("Couldn't save your changes", err);
+    }
   }
 
   async function deleteSession(id) {
-    await db.deleteSession(id);
-    setConfirmDelete(null);
-    setEditing(null);
-    await fetchData();
-    const updated = await db.getSessionsByDate(modal.date);
-    if (updated.length === 0) setModal(null);
-    else setModal((m) => ({ ...m, sessions: updated }));
+    try {
+      await db.deleteSession(id);
+      setConfirmDelete(null);
+      setEditing(null);
+      await fetchData();
+      const updated = await db.getSessionsByDate(modal.date);
+      if (updated.length === 0) setModal(null);
+      else setModal((m) => ({ ...m, sessions: updated }));
+    } catch (err) {
+      reportError("Couldn't delete that session", err);
+    }
   }
 
   const modalProj = editing
@@ -168,72 +149,33 @@ export default function Activity({ active }) {
 
   return (
     <>
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          overflowY: "auto",
-          padding: "clamp(28px, 5vw, 48px) clamp(20px, 4vw, 52px) 32px",
-          opacity: active ? 1 : 0,
-          transform: active ? "translateY(0)" : "translateY(12px)",
-          pointerEvents: active ? "all" : "none",
-          transition: "opacity 0.3s, transform 0.3s",
-        }}
-      >
-        <div style={{ marginBottom: 40 }}>
+      <Page active={active} eyebrow={timeframe} title="Activity">
+        <div ref={gridWrapRef} style={{ width: "100%" }}>
           <div
             style={{
-              fontSize: 11,
-              letterSpacing: "0.35em",
-              textTransform: "uppercase",
-              color: "var(--text-dim)",
+              position: "relative",
+              height: 12,
+              marginLeft: DAY_LABEL_COL,
               marginBottom: 6,
             }}
           >
-            <span style={{ textTransform: "none" }}>prism</span> · {timeframe}
-          </div>
-          <div
-            style={{
-              fontSize: 40,
-              fontWeight: 700,
-              fontFamily: "Agdasima, sans-serif",
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              lineHeight: 1,
-            }}
-          >
-            Activity
-          </div>
-        </div>
-
-        <div ref={gridWrapRef} style={{ width: "100%" }}>
-          <div style={{ display: "flex", marginLeft: 24, marginBottom: 6 }}>
-            {weeks.map((week, wi) => {
-              const firstDay = new Date(week[0] + "T12:00:00");
-              const showLabel =
-                wi === 0 ||
-                new Date(weeks[wi - 1][0] + "T12:00:00").getMonth() !==
-                  firstDay.getMonth();
-              return (
-                <div
-                  key={wi}
-                  style={{
-                    width: CELL + GAP,
-                    flexShrink: 0,
-                    fontSize: 10,
-                    letterSpacing: "0.15em",
-                    textTransform: "uppercase",
-                    color: "var(--text-dim)",
-                  }}
-                >
-                  {showLabel
-                    ? firstDay
-                        .toLocaleString("en-US", { month: "short" })
-                        .toUpperCase()
-                    : ""}
-                </div>
-              );
-            })}
+            {labels.map((l) => (
+              <div
+                key={l.index}
+                style={{
+                  position: "absolute",
+                  left: l.index * (CELL + GAP),
+                  fontSize: 10,
+                  lineHeight: "12px",
+                  letterSpacing: "0.15em",
+                  textTransform: "uppercase",
+                  color: "var(--text-dim)",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {l.text}
+              </div>
+            ))}
           </div>
 
           <div style={{ display: "flex", gap: GAP }}>
@@ -242,11 +184,11 @@ export default function Activity({ active }) {
                 display: "flex",
                 flexDirection: "column",
                 gap: GAP,
-                width: 14,
+                width: DAY_LABEL_W,
                 flexShrink: 0,
               }}
             >
-              {dayLabels.map((d, i) => (
+              {DAY_LABELS.map((d, i) => (
                 <div
                   key={i}
                   style={{
@@ -269,23 +211,25 @@ export default function Activity({ active }) {
                   key={wi}
                   style={{ display: "flex", flexDirection: "column", gap: GAP }}
                 >
-                  {week.map((date, di) => {
+                  {week.map((date) => {
                     const cell = gridMap[date];
                     const hasSession = !!cell;
+                    // the current week's column runs past today; keep the
+                    // slots so rows stay aligned, but don't draw them
+                    const future = date > todayKey;
                     return (
                       <div
-                        key={di}
-                        title={date}
+                        key={date}
+                        title={future ? undefined : date}
                         onClick={() => openCell(date)}
                         style={{
                           width: CELL,
                           height: CELL,
                           borderRadius: 3,
                           flexShrink: 0,
+                          visibility: future ? "hidden" : "visible",
                           background: cell ? cell.color : "var(--surface2)",
-                          opacity: cell
-                            ? [0, 0.2, 0.45, 0.7, 1][cell.intensity]
-                            : 1,
+                          opacity: cell ? INTENSITY_OPACITY[cell.intensity] : 1,
                           cursor: hasSession ? "pointer" : "default",
                           transition: "transform 0.15s",
                         }}
@@ -346,13 +290,20 @@ export default function Activity({ active }) {
         <div
           style={{ height: 1, background: "var(--border)", margin: "28px 0" }}
         />
-        <div style={{ display: "flex", gap: 28, alignItems: "center" }}>
+        <div
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            columnGap: 28,
+            rowGap: 14,
+            alignItems: "center",
+          }}
+        >
           <Stat label="This month" value={`${Math.round(monthHours)}h`} />
           <Stat label="Sessions" value={thisMonth.length} />
-          <Stat label="Streak" value={`${streak}d`} />
           <Stat label="Total" value={`${Math.round(totalHours)}h`} />
         </div>
-      </div>
+      </Page>
 
       {/* CELL MODAL */}
       {modal && (
@@ -477,10 +428,8 @@ export default function Activity({ active }) {
                               marginTop: 3,
                             }}
                           >
-                            {s.duration_minutes < 60
-                              ? `${s.duration_minutes}m`
-                              : `${s.duration_minutes / 60}h`}{" "}
-                            · {INTENSITIES[s.intensity - 1]}
+                            {formatDuration(s.duration_minutes)} ·{" "}
+                            {INTENSITIES[s.intensity - 1]}
                           </div>
                         </div>
                         <button
@@ -625,7 +574,7 @@ export default function Activity({ active }) {
                                   borderRadius: 4,
                                   cursor: "pointer",
                                   background: modalProj?.color || "#fff",
-                                  opacity: level * 0.25,
+                                  opacity: INTENSITY_OPACITY[level],
                                   border:
                                     editInt === level
                                       ? "2px solid var(--text)"
@@ -682,6 +631,7 @@ export default function Activity({ active }) {
                       <div
                         style={{
                           display: "flex",
+                          flexWrap: "wrap",
                           gap: 8,
                           alignItems: "center",
                         }}
@@ -724,6 +674,7 @@ export default function Activity({ active }) {
                             <div
                               style={{
                                 display: "flex",
+                                flexWrap: "wrap",
                                 gap: 6,
                                 alignItems: "center",
                               }}
@@ -814,6 +765,7 @@ function Stat({ label, value }) {
           letterSpacing: "0.25em",
           textTransform: "uppercase",
           color: "var(--text-dim)",
+          whiteSpace: "nowrap",
         }}
       >
         {label}
