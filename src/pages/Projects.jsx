@@ -17,11 +17,13 @@ const COLORS = [
 import {
   DURATIONS,
   INTENSITIES,
-  INTENSITY_OPACITY,
+  TIER_OPACITY,
   formatDuration,
 } from "../lib/constants";
+import { tierFor } from "../lib/tiers";
 import { reportError } from "../lib/toast";
 import Page from "../components/Page";
+import IntensityMeter from "../components/IntensityMeter";
 
 export default function Projects({ active }) {
   const [projects, setProjects] = useState([]);
@@ -36,7 +38,6 @@ export default function Projects({ active }) {
   const [expandedId, setExpandedId] = useState(null);
   const [editingSession, setEditingSession] = useState(null);
   const [editDur, setEditDur] = useState(60);
-  const [editInt, setEditInt] = useState(2);
   const [editNote, setEditNote] = useState("");
   const [confirmDeleteSession, setConfirmDeleteSession] = useState(null);
 
@@ -112,7 +113,6 @@ export default function Projects({ active }) {
   function startEditSession(s) {
     setEditingSession(s);
     setEditDur(s.duration_minutes);
-    setEditInt(s.intensity);
     setEditNote(s.note || "");
     setConfirmDeleteSession(null);
   }
@@ -121,7 +121,6 @@ export default function Projects({ active }) {
     try {
       await db.updateSession(editingSession.id, {
         duration_minutes: editDur,
-        intensity: editInt,
         note: editNote,
       });
     } catch (err) {
@@ -491,7 +490,7 @@ export default function Projects({ active }) {
                                   }}
                                 >
                                   {formatDuration(s.duration_minutes)} ·{" "}
-                                  {INTENSITIES[s.intensity - 1]}
+                                  {INTENSITIES[tierFor(s.duration_minutes, p)]}
                                   {s.note ? ` · ${s.note}` : ""}
                                 </div>
                               </div>
@@ -502,7 +501,10 @@ export default function Projects({ active }) {
                                   height: 8,
                                   borderRadius: 2,
                                   background: p.color,
-                                  opacity: INTENSITY_OPACITY[s.intensity],
+                                  opacity:
+                                    TIER_OPACITY[
+                                      tierFor(s.duration_minutes, p)
+                                    ],
                                   flexShrink: 0,
                                 }}
                               />
@@ -597,7 +599,7 @@ export default function Projects({ active }) {
                                   ))}
                                 </div>
                               </div>
-                              {/* intensity */}
+                              {/* intensity preview */}
                               <div>
                                 <div
                                   style={{
@@ -610,49 +612,12 @@ export default function Projects({ active }) {
                                 >
                                   Intensity
                                 </div>
-                                <div style={{ display: "flex", gap: 6 }}>
-                                  {INTENSITIES.map((label, i) => {
-                                    const level = i + 1;
-                                    return (
-                                      <div
-                                        key={i}
-                                        style={{
-                                          flex: 1,
-                                          display: "flex",
-                                          flexDirection: "column",
-                                          alignItems: "center",
-                                          gap: 4,
-                                        }}
-                                      >
-                                        <div
-                                          onClick={() => setEditInt(level)}
-                                          style={{
-                                            width: "100%",
-                                            height: 28,
-                                            borderRadius: 4,
-                                            cursor: "pointer",
-                                            background: p.color,
-                                            opacity: INTENSITY_OPACITY[level],
-                                            border:
-                                              editInt === level
-                                                ? "2px solid var(--text)"
-                                                : "1px solid transparent",
-                                          }}
-                                        />
-                                        <div
-                                          style={{
-                                            fontSize: 9,
-                                            letterSpacing: "0.1em",
-                                            textTransform: "uppercase",
-                                            color: "var(--text-dim)",
-                                          }}
-                                        >
-                                          {label}
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
+                                <IntensityMeter
+                                  track={p}
+                                  minutes={editDur}
+                                  height={28}
+                                  labelSize={9}
+                                />
                               </div>
                               {/* note */}
                               <div>

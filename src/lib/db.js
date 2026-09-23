@@ -1,4 +1,5 @@
 import { supabase, DEV_MODE, DEV_USER_ID } from "./supabase";
+import { DEMO_ENABLED, generateDemo } from "./demo";
 
 const GUEST_FLAG = "prism_guest";
 const GUEST_PROJECTS = "prism_guest_projects";
@@ -26,7 +27,27 @@ export function guestCreatedAt() {
   return t;
 }
 
+export function isDemo() {
+  return DEMO_ENABLED;
+}
+
+// Guest and demo mode share the local code path. Guest data lives in
+// localStorage; demo data lives in memory and resets on reload.
+let demoStore = null;
+function demoData() {
+  if (!demoStore) {
+    const { projects, sessions } = generateDemo();
+    demoStore = { [GUEST_PROJECTS]: projects, [GUEST_SESSIONS]: sessions };
+  }
+  return demoStore;
+}
+function isLocal() {
+  return isDemo() || isGuest();
+}
+
 function readG(key) {
+  // the literal DEV check lets production builds drop demo data entirely
+  if (import.meta.env.DEV && isDemo()) return [...demoData()[key]];
   try {
     return JSON.parse(localStorage.getItem(key) || "[]");
   } catch {
@@ -34,7 +55,8 @@ function readG(key) {
   }
 }
 function writeG(key, val) {
-  localStorage.setItem(key, JSON.stringify(val));
+  if (import.meta.env.DEV && isDemo()) demoData()[key] = val;
+  else localStorage.setItem(key, JSON.stringify(val));
 }
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -68,7 +90,7 @@ async function currentUserId() {
 
 // ─── PROJECTS ──────────────────────────────────────────
 export async function getProjects() {
-  if (isGuest()) {
+  if (isLocal()) {
     return readG(GUEST_PROJECTS).sort((a, b) =>
       (a.created_at || "").localeCompare(b.created_at || ""),
     );
@@ -77,7 +99,7 @@ export async function getProjects() {
 }
 
 export async function addProject({ name, color }) {
-  if (isGuest()) {
+  if (isLocal()) {
     const list = readG(GUEST_PROJECTS);
     list.push({
       id: uid(),
@@ -94,7 +116,7 @@ export async function addProject({ name, color }) {
 }
 
 export async function updateProject(id, { name, color }) {
-  if (isGuest()) {
+  if (isLocal()) {
     const list = readG(GUEST_PROJECTS).map((p) =>
       p.id === id ? { ...p, name, color } : p,
     );
@@ -105,7 +127,7 @@ export async function updateProject(id, { name, color }) {
 }
 
 export async function deleteProject(id) {
-  if (isGuest()) {
+  if (isLocal()) {
     writeG(
       GUEST_PROJECTS,
       readG(GUEST_PROJECTS).filter((p) => p.id !== id),
@@ -122,7 +144,7 @@ export async function deleteProject(id) {
 
 // ─── SESSIONS ──────────────────────────────────────────
 export async function getSessions() {
-  if (isGuest()) {
+  if (isLocal()) {
     return readG(GUEST_SESSIONS).sort((a, b) =>
       (b.date || "").localeCompare(a.date || ""),
     );
@@ -138,7 +160,7 @@ export async function getSessions() {
 }
 
 export async function getSessionsByDate(date) {
-  if (isGuest()) {
+  if (isLocal()) {
     return readG(GUEST_SESSIONS).filter((s) => s.date === date);
   }
   return check(await supabase.from("sessions").select("*").eq("date", date));
@@ -147,19 +169,19 @@ export async function getSessionsByDate(date) {
 export async function addSession({
   project_id,
   duration_minutes,
-  intensity,
   note,
   date,
+  source = "manual",
 }) {
-  if (isGuest()) {
+  if (isLocal()) {
     const list = readG(GUEST_SESSIONS);
     list.push({
       id: uid(),
       project_id,
       duration_minutes,
-      intensity,
       note: note || null,
       date,
+      source,
       user_id: "guest",
     });
     writeG(GUEST_SESSIONS, list);
@@ -171,19 +193,17 @@ export async function addSession({
       user_id,
       project_id,
       duration_minutes,
-      intensity,
       note: note || null,
       date,
+      source,
     }),
   );
 }
 
-export async function updateSession(id, { duration_minutes, intensity, note }) {
-  if (isGuest()) {
+export async function updateSession(id, { duration_minutes, note }) {
+  if (isLocal()) {
     const list = readG(GUEST_SESSIONS).map((s) =>
-      s.id === id
-        ? { ...s, duration_minutes, intensity, note: note || null }
-        : s,
+      s.id === id ? { ...s, duration_minutes, note: note || null } : s,
     );
     writeG(GUEST_SESSIONS, list);
     return;
@@ -191,13 +211,13 @@ export async function updateSession(id, { duration_minutes, intensity, note }) {
   check(
     await supabase
       .from("sessions")
-      .update({ duration_minutes, intensity, note: note || null })
+      .update({ duration_minutes, note: note || null })
       .eq("id", id),
   );
 }
 
 export async function deleteSession(id) {
-  if (isGuest()) {
+  if (isLocal()) {
     writeG(
       GUEST_SESSIONS,
       readG(GUEST_SESSIONS).filter((s) => s.id !== id),

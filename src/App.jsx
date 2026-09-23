@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase, DEV_MODE } from "./lib/supabase";
-import { isGuest, enterGuest, exitGuest } from "./lib/db";
+import { isGuest, isDemo, enterGuest, exitGuest } from "./lib/db";
 import { reportError } from "./lib/toast";
 import Activity from "./pages/Activity";
 import Projects from "./pages/Projects";
@@ -11,6 +11,7 @@ import BottomNav from "./components/BottomNav";
 export default function App() {
   const [session, setSession] = useState(null);
   const [guest, setGuest] = useState(isGuest());
+  const demo = isDemo();
   const [page, setPage] = useState("activity");
   const [loading, setLoading] = useState(true);
 
@@ -64,7 +65,8 @@ export default function App() {
       </div>
     );
 
-  if (!DEV_MODE && !session && !guest) return <Auth onGuest={startGuest} />;
+  if (!DEV_MODE && !session && !guest && !demo)
+    return <Auth onGuest={startGuest} />;
 
   return (
     <div
@@ -82,6 +84,7 @@ export default function App() {
           active={page === "account"}
           session={session}
           guest={guest}
+          demo={demo}
           onLeaveGuest={leaveGuest}
         />
       </div>

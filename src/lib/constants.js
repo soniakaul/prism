@@ -7,12 +7,16 @@ export const DURATIONS = [
   { label: "3h+", value: 180 },
 ];
 
+// Intensity levels, indexed by tier: 0 is a trace (time under tier 1),
+// then tiers 1-3. TIER_OPACITY is the shade for each, shared by the grid
+// and the intensity meter so a level looks the same everywhere.
 export const INTENSITIES = ["Light", "Focused", "Deep", "Locked In"];
+export const TIER_OPACITY = [0.2, 0.45, 0.7, 1];
 
-// Opacity for intensity 1–4 (index 0 unused). The grid and every picker
-// read from here so a level looks the same everywhere.
-export const INTENSITY_OPACITY = [0, 0.2, 0.45, 0.7, 1];
-
+// 45 -> "45m", 60 -> "1h", 80 -> "1h 20m"
 export function formatDuration(mins) {
-  return mins < 60 ? `${mins}m` : `${mins / 60}h`;
+  if (mins < 60) return `${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
 }

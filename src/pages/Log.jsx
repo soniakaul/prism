@@ -1,15 +1,15 @@
 import { useState, useEffect } from "react";
 import * as db from "../lib/db";
 import { toDateKey } from "../lib/dates";
-import { DURATIONS, INTENSITIES, INTENSITY_OPACITY } from "../lib/constants";
+import { DURATIONS } from "../lib/constants";
 import { reportError } from "../lib/toast";
 import Page from "../components/Page";
+import IntensityMeter from "../components/IntensityMeter";
 
 export default function Log({ active, onSuccess }) {
   const [projects, setProjects] = useState([]);
   const [selProj, setSelProj] = useState(null);
   const [selDur, setSelDur] = useState(60);
-  const [selInt, setSelInt] = useState(2);
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
   const [burst, setBurst] = useState(false);
@@ -36,7 +36,6 @@ export default function Log({ active, onSuccess }) {
       await db.addSession({
         project_id: selProj,
         duration_minutes: selDur,
-        intensity: selInt,
         note,
         date: toDateKey(),
       });
@@ -145,55 +144,9 @@ export default function Log({ active, onSuccess }) {
           </div>
         </Field>
 
-        {/* intensity */}
+        {/* what this session earns, previewed in the track's color */}
         <Field label="Intensity">
-          <div style={{ display: "flex", gap: 8 }}>
-            {INTENSITIES.map((label, i) => {
-              const level = i + 1;
-              const color = activeProj?.color || "#c87941";
-              return (
-                <div
-                  key={i}
-                  style={{
-                    flex: 1,
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    gap: 6,
-                  }}
-                >
-                  <div
-                    onClick={() => setSelInt(level)}
-                    style={{
-                      width: "100%",
-                      height: 44,
-                      borderRadius: 4,
-                      cursor: "pointer",
-                      background: color,
-                      opacity: INTENSITY_OPACITY[level],
-                      border:
-                        selInt === level
-                          ? "2px solid var(--text)"
-                          : "1px solid transparent",
-                      transition: "border-color 0.15s, transform 0.15s",
-                      transform:
-                        selInt === level ? "scaleY(1.05)" : "scaleY(1)",
-                    }}
-                  />
-                  <div
-                    style={{
-                      fontSize: 10,
-                      letterSpacing: "0.12em",
-                      textTransform: "uppercase",
-                      color: "var(--text-dim)",
-                    }}
-                  >
-                    {label}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <IntensityMeter track={activeProj} minutes={selDur} />
         </Field>
 
         {/* note */}

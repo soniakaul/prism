@@ -57,3 +57,14 @@ textarea,
 select {
   font-family: inherit;
 }
+
+/* Respect "reduce motion": keep state changes, drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
