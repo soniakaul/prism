@@ -9,7 +9,7 @@ export default function Page({ active, eyebrow, title, children }) {
         overflowY: "auto",
         overflowX: "hidden",
         padding:
-          "calc(clamp(28px, 5vw, 48px) + var(--safe-top)) max(clamp(20px, 4vw, 52px), var(--safe-right)) 32px max(clamp(20px, 4vw, 52px), var(--safe-left))",
+          "calc(clamp(28px, 5vw, 48px) + var(--safe-top)) max(clamp(20px, 4vw, 52px), var(--safe-right)) calc(32px + var(--pill-space, 0px)) max(clamp(20px, 4vw, 52px), var(--safe-left))",
         opacity: active ? 1 : 0,
         transform: active ? "translateY(0)" : "translateY(12px)",
         pointerEvents: active ? "all" : "none",

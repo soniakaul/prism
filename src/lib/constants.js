@@ -20,3 +20,23 @@ export function formatDuration(mins) {
   const m = mins % 60;
   return m ? `${h}h ${m}m` : `${h}h`;
 }
+
+// How a session length reads in the app: the nearest preset, marked "~" when
+// it isn't exact (a 103-minute timer reads "~1.5h"). Exact minutes are still
+// saved and drive tiers and totals; only the display is loose.
+const LOOSE = [
+  [15, "15m"],
+  [30, "30m"],
+  [60, "1h"],
+  [90, "1.5h"],
+  [120, "2h"],
+  [180, "3h"],
+];
+export function formatLoose(mins) {
+  if (mins >= 180) return "3h+";
+  // ties round up: 45m reads "~1h"
+  const [value, label] = LOOSE.reduce((best, b) =>
+    Math.abs(b[0] - mins) <= Math.abs(best[0] - mins) ? b : best,
+  );
+  return value === mins ? label : `~${label}`;
+}

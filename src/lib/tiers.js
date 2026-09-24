@@ -4,28 +4,22 @@
 //
 // A track is a row from `projects`; sessions point at it via project_id.
 
-export const DEFAULT_THRESHOLDS = [60, 120, 180]; // minutes for tiers 1, 2, 3
-
-export function thresholds(track) {
-  return [
-    track.tier1_min ?? DEFAULT_THRESHOLDS[0],
-    track.tier2_min ?? DEFAULT_THRESHOLDS[1],
-    track.tier3_min ?? DEFAULT_THRESHOLDS[2],
-  ];
-}
+// One scale for every track, in minutes that day: tier 1 (Focused) at 1h,
+// tier 2 (Deep) at 2h, tier 3 (Locked In) at 3h. Under 1h is a trace (Light).
+export const THRESHOLDS = [60, 120, 180];
 
 // 0-3. A track with time logged but under tier 1 is tier 0 with trace=true.
-export function tierFor(totalMin, track) {
-  const [t1, t2, t3] = thresholds(track);
+export function tierFor(totalMin) {
+  const [t1, t2, t3] = THRESHOLDS;
   if (totalMin >= t3) return 3;
   if (totalMin >= t2) return 2;
   if (totalMin >= t1) return 1;
   return 0;
 }
 
-// Order for "who colors the square": highest tier, then furthest past the
-// top threshold (5h beats 3h on a 3h track), then the user's ranking
-// (lower priority number wins, unranked last), then oldest track.
+// Order for "who colors the square": highest tier, then the most time
+// (5h beats 3h), then the user's ranking (lower priority number wins,
+// unranked last), then oldest track.
 export function compareDominance(a, b) {
   if (a.tier !== b.tier) return b.tier - a.tier;
   if (a.overflow !== b.overflow) return b.overflow - a.overflow;
@@ -54,12 +48,12 @@ export function summarizeDay(sessions, tracksById) {
   }
 
   const tracks = [...byTrack.values()].map((e) => {
-    const tier = tierFor(e.totalMin, e.track);
+    const tier = tierFor(e.totalMin);
     return {
       ...e,
       tier,
       trace: tier === 0 && e.totalMin > 0,
-      overflow: e.totalMin / thresholds(e.track)[2],
+      overflow: e.totalMin / THRESHOLDS[2],
     };
   });
   tracks.sort(compareDominance);

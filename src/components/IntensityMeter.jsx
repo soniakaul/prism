@@ -10,7 +10,7 @@ export default function IntensityMeter({
   height = 44,
   labelSize = 10,
 }) {
-  const level = track && minutes > 0 ? tierFor(minutes, track) : -1;
+  const level = track && minutes > 0 ? tierFor(minutes) : -1;
   const color = track?.color || "var(--text-dim)";
 
   return (

@@ -7,6 +7,8 @@ import Projects from "./pages/Projects";
 import Log from "./pages/Log";
 import Account from "./pages/Account";
 import BottomNav from "./components/BottomNav";
+import TimerPill from "./components/TimerPill";
+import { useTimer, clearTimer } from "./lib/timer";
 
 export default function App() {
   const [session, setSession] = useState(null);
@@ -14,6 +16,10 @@ export default function App() {
   const demo = isDemo();
   const [page, setPage] = useState("activity");
   const [loading, setLoading] = useState(true);
+  // after logging: open today's bloom with the new petal growing in last
+  const [pendingBloom, setPendingBloom] = useState(null);
+  const timer = useTimer();
+  const pillShown = !!timer && !timer.stoppedAt && page !== "log";
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -34,6 +40,7 @@ export default function App() {
   }
   function leaveGuest() {
     exitGuest();
+    clearTimer(); // the timer lives on this device; don't hand it to the next person
     setGuest(false);
     setPage("activity");
   }
@@ -76,10 +83,26 @@ export default function App() {
         height: "100dvh",
       }}
     >
-      <div style={{ position: "relative", overflow: "hidden" }}>
-        <Activity active={page === "activity"} />
+      <div
+        style={{
+          position: "relative",
+          overflow: "hidden",
+          "--pill-space": pillShown ? "64px" : "0px",
+        }}
+      >
+        <Activity
+          active={page === "activity"}
+          pendingBloom={pendingBloom}
+          onBloomShown={() => setPendingBloom(null)}
+        />
         <Projects active={page === "projects"} />
-        <Log active={page === "log"} onSuccess={() => setPage("activity")} />
+        <Log
+          active={page === "log"}
+          onLogged={(logged) => {
+            setPendingBloom(logged);
+            setPage("activity");
+          }}
+        />
         <Account
           active={page === "account"}
           session={session}
@@ -87,6 +110,7 @@ export default function App() {
           demo={demo}
           onLeaveGuest={leaveGuest}
         />
+        {page !== "log" && <TimerPill onOpen={() => setPage("log")} />}
       </div>
       <BottomNav current={page} onChange={setPage} />
     </div>

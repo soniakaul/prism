@@ -17,22 +17,14 @@ const session = (project_id, duration_minutes, date = "2026-09-23") => ({
 const byId = (...tracks) => new Map(tracks.map((t) => [t.id, t]));
 
 describe("tierFor", () => {
-  const t = track("a");
-
-  it("uses 1h / 2h / 3h by default", () => {
-    expect(tierFor(0, t)).toBe(0);
-    expect(tierFor(59, t)).toBe(0);
-    expect(tierFor(60, t)).toBe(1);
-    expect(tierFor(119, t)).toBe(1);
-    expect(tierFor(120, t)).toBe(2);
-    expect(tierFor(180, t)).toBe(3);
-    expect(tierFor(600, t)).toBe(3);
-  });
-
-  it("respects per-track thresholds", () => {
-    const light = track("b", { tier1_min: 15, tier2_min: 30, tier3_min: 45 });
-    expect(tierFor(15, light)).toBe(1);
-    expect(tierFor(45, light)).toBe(3);
+  it("uses one scale for every track: 1h / 2h / 3h", () => {
+    expect(tierFor(0)).toBe(0);
+    expect(tierFor(59)).toBe(0);
+    expect(tierFor(60)).toBe(1);
+    expect(tierFor(119)).toBe(1);
+    expect(tierFor(120)).toBe(2);
+    expect(tierFor(180)).toBe(3);
+    expect(tierFor(600)).toBe(3);
   });
 });
 
@@ -60,12 +52,12 @@ describe("summarizeDay", () => {
 
   it("lets any real tier beat a trace", () => {
     const a = track("a");
-    const b = track("bb", { tier1_min: 60 });
+    const b = track("bb");
     const day = summarizeDay([session("a", 50), session("bb", 60)], byId(a, b));
     expect(day.dominant.track.id).toBe("bb");
   });
 
-  it("breaks a tier tie by overflow past the top threshold", () => {
+  it("breaks a tier tie by the most time", () => {
     const a = track("a"); // 3h top
     const b = track("bb"); // 3h top
     const day = summarizeDay(
@@ -73,17 +65,6 @@ describe("summarizeDay", () => {
       byId(a, b),
     );
     expect(day.dominant.track.id).toBe("bb"); // 5h beats 3h
-  });
-
-  it("compares overflow as a ratio across different thresholds", () => {
-    const short = track("a", { tier1_min: 20, tier2_min: 40, tier3_min: 60 });
-    const long = track("bb"); // 3h top
-    // 90m on a 1h-top track (1.5x) beats 240m on a 3h-top track (1.33x)
-    const day = summarizeDay(
-      [session("a", 90), session("bb", 240)],
-      byId(short, long),
-    );
-    expect(day.dominant.track.id).toBe("a");
   });
 
   it("falls back to the user's ranking, then the oldest track", () => {

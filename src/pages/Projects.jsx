@@ -18,7 +18,7 @@ import {
   DURATIONS,
   INTENSITIES,
   TIER_OPACITY,
-  formatDuration,
+  formatLoose,
 } from "../lib/constants";
 import { tierFor } from "../lib/tiers";
 import { reportError } from "../lib/toast";
@@ -489,8 +489,8 @@ export default function Projects({ active }) {
                                     color: "var(--text-dim)",
                                   }}
                                 >
-                                  {formatDuration(s.duration_minutes)} ·{" "}
-                                  {INTENSITIES[tierFor(s.duration_minutes, p)]}
+                                  {formatLoose(s.duration_minutes)} ·{" "}
+                                  {INTENSITIES[tierFor(s.duration_minutes)]}
                                   {s.note ? ` · ${s.note}` : ""}
                                 </div>
                               </div>
@@ -502,9 +502,7 @@ export default function Projects({ active }) {
                                   borderRadius: 2,
                                   background: p.color,
                                   opacity:
-                                    TIER_OPACITY[
-                                      tierFor(s.duration_minutes, p)
-                                    ],
+                                    TIER_OPACITY[tierFor(s.duration_minutes)],
                                   flexShrink: 0,
                                 }}
                               />

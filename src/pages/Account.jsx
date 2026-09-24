@@ -2,6 +2,7 @@ import { useState } from "react";
 import { supabase } from "../lib/supabase";
 import { clearGuestData, guestCreatedAt } from "../lib/db";
 import { reportError } from "../lib/toast";
+import { clearTimer } from "../lib/timer";
 import Page from "../components/Page";
 
 export default function Account({
@@ -31,6 +32,7 @@ export default function Account({
   async function signOut() {
     const { error } = await supabase.auth.signOut();
     if (error) reportError("Couldn't sign out", error);
+    else clearTimer(); // the timer lives on this device, not the account
   }
 
   function handleClear() {

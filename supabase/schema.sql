@@ -12,7 +12,8 @@ create table if not exists public.projects (
   name text not null,
   color text not null default '#c87941',
   created_at timestamptz default now(),
-  -- minutes needed in a day to reach tiers 1, 2 and 3
+  -- unused: levels are one shared scale in code (src/lib/tiers.js).
+  -- Kept so per-track levels can come back without a migration.
   tier1_min integer not null default 60,
   tier2_min integer not null default 120,
   tier3_min integer not null default 180,
