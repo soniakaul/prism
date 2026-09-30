@@ -1,4 +1,6 @@
-export default function BottomNav({ current, onChange }) {
+// The app's tabs: a bar along the bottom on phones, a slim rail down the
+// left side on wide screens.
+export default function BottomNav({ current, onChange, rail = false }) {
   const tabs = [
     { id: "activity", label: "Activity", icon: <GridIcon /> },
     { id: "projects", label: "Projects", icon: <ListIcon /> },
@@ -8,20 +10,45 @@ export default function BottomNav({ current, onChange }) {
 
   return (
     <nav
-      style={{
-        height: "calc(var(--nav-h) + var(--safe-bottom))",
-        paddingBottom: "var(--safe-bottom)",
-        background: "var(--surface)",
-        borderTop: "1px solid var(--border)",
-        display: "flex",
-      }}
+      style={
+        rail
+          ? {
+              width: "calc(var(--rail-w) + var(--safe-left))",
+              paddingLeft: "var(--safe-left)",
+              paddingTop: "calc(24px + var(--safe-top))",
+              background: "var(--surface)",
+              borderRight: "1px solid var(--border)",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "stretch",
+              gap: 6,
+            }
+          : {
+              height: "calc(var(--nav-h) + var(--safe-bottom))",
+              paddingBottom: "var(--safe-bottom)",
+              background: "var(--surface)",
+              borderTop: "1px solid var(--border)",
+              display: "flex",
+            }
+      }
     >
+      {rail && (
+        <img
+          src="/favicon.svg"
+          alt="prism"
+          width="30"
+          height="30"
+          style={{ margin: "0 auto 22px" }}
+        />
+      )}
       {tabs.map((t) => (
         <button
           key={t.id}
           onClick={() => onChange(t.id)}
+          aria-current={current === t.id ? "page" : undefined}
           style={{
-            flex: 1,
+            flex: rail ? "none" : 1,
+            height: rail ? 68 : undefined,
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -43,8 +70,8 @@ export default function BottomNav({ current, onChange }) {
           </div>
           <div
             style={{
-              fontSize: 11,
-              letterSpacing: "0.25em",
+              fontSize: rail ? 10 : 11,
+              letterSpacing: rail ? "0.14em" : "0.25em",
               textTransform: "uppercase",
               color: current === t.id ? "var(--text)" : "var(--text-dim)",
               transition: "color 0.15s",

@@ -20,6 +20,7 @@ create table if not exists public.projects (
   family text,
   priority integer, -- the user's ranking for tie-breaks; lower wins
   hide_on_share boolean not null default false,
+  show_on_grid boolean not null default true, -- toggled from the Activity key
   archived_at timestamptz,
   constraint projects_tiers_check
     check (tier1_min > 0 and tier1_min < tier2_min and tier2_min < tier3_min)

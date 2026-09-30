@@ -126,6 +126,22 @@ export async function updateProject(id, { name, color }) {
   check(await supabase.from("projects").update({ name, color }).eq("id", id));
 }
 
+// Show or hide a project on the Activity grid (and in its stats).
+export async function setProjectOnGrid(id, show) {
+  if (isLocal()) {
+    writeG(
+      GUEST_PROJECTS,
+      readG(GUEST_PROJECTS).map((p) =>
+        p.id === id ? { ...p, show_on_grid: show } : p,
+      ),
+    );
+    return;
+  }
+  check(
+    await supabase.from("projects").update({ show_on_grid: show }).eq("id", id),
+  );
+}
+
 export async function deleteProject(id) {
   if (isLocal()) {
     writeG(

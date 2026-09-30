@@ -9,16 +9,37 @@ import Account from "./pages/Account";
 import BottomNav from "./components/BottomNav";
 import TimerPill from "./components/TimerPill";
 import { useTimer, clearTimer } from "./lib/timer";
+import { useWide } from "./lib/useWide";
+
+const TAB_KEY = "prism_tab";
+const TABS = ["activity", "projects", "log", "account"];
+
+function savedTab() {
+  try {
+    const tab = localStorage.getItem(TAB_KEY);
+    return TABS.includes(tab) ? tab : "activity";
+  } catch {
+    return "activity";
+  }
+}
 
 export default function App() {
   const [session, setSession] = useState(null);
   const [guest, setGuest] = useState(isGuest());
   const demo = isDemo();
-  const [page, setPage] = useState("activity");
+  // the open tab survives a refresh (remembered on this device)
+  const [page, setPageState] = useState(savedTab);
+  const setPage = (tab) => {
+    setPageState(tab);
+    try {
+      localStorage.setItem(TAB_KEY, tab);
+    } catch {
+      // storage unavailable: refreshes just start on Activity
+    }
+  };
   const [loading, setLoading] = useState(true);
-  // after logging: open today's bloom with the new petal growing in last
-  const [pendingBloom, setPendingBloom] = useState(null);
   const timer = useTimer();
+  const wide = useWide();
   const pillShown = !!timer && !timer.stoppedAt && page !== "log";
 
   useEffect(() => {
@@ -79,10 +100,15 @@ export default function App() {
     <div
       style={{
         display: "grid",
-        gridTemplateRows: "1fr calc(var(--nav-h) + var(--safe-bottom))",
         height: "100dvh",
+        ...(wide
+          ? { gridTemplateColumns: "auto 1fr" }
+          : {
+              gridTemplateRows: "1fr calc(var(--nav-h) + var(--safe-bottom))",
+            }),
       }}
     >
+      {wide && <BottomNav rail current={page} onChange={setPage} />}
       <div
         style={{
           position: "relative",
@@ -90,19 +116,9 @@ export default function App() {
           "--pill-space": pillShown ? "64px" : "0px",
         }}
       >
-        <Activity
-          active={page === "activity"}
-          pendingBloom={pendingBloom}
-          onBloomShown={() => setPendingBloom(null)}
-        />
+        <Activity active={page === "activity"} />
         <Projects active={page === "projects"} />
-        <Log
-          active={page === "log"}
-          onLogged={(logged) => {
-            setPendingBloom(logged);
-            setPage("activity");
-          }}
-        />
+        <Log active={page === "log"} />
         <Account
           active={page === "account"}
           session={session}
@@ -112,7 +128,7 @@ export default function App() {
         />
         {page !== "log" && <TimerPill onOpen={() => setPage("log")} />}
       </div>
-      <BottomNav current={page} onChange={setPage} />
+      {!wide && <BottomNav current={page} onChange={setPage} />}
     </div>
   );
 }

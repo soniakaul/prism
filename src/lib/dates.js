@@ -76,3 +76,14 @@ export function isOpen(
 ) {
   return dateKey === logicalToday(now, lockHour);
 }
+
+// "Wed · Sep 23"
+export function formatDayKey(key) {
+  return fromDateKey(key)
+    .toLocaleDateString("en-US", {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    })
+    .replace(",", " ·");
+}

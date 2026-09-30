@@ -22,10 +22,17 @@ describe("formatLoose", () => {
 
   it("rounds everything else to the nearest preset with a ~", () => {
     expect(formatLoose(103)).toBe("~1.5h");
-    expect(formatLoose(110)).toBe("~2h");
+    expect(formatLoose(80)).toBe("~1.5h");
     expect(formatLoose(2)).toBe("~15m");
-    expect(formatLoose(45)).toBe("~1h"); // ties round up
-    expect(formatLoose(160)).toBe("~3h");
+    expect(formatLoose(20)).toBe("~15m");
+  });
+
+  it("never rounds up past a level it didn't reach", () => {
+    expect(formatLoose(45)).toBe("<1h"); // ties round up, but stay under
+    expect(formatLoose(55)).toBe("<1h");
+    expect(formatLoose(110)).toBe("<2h");
+    expect(formatLoose(160)).toBe("<3h");
+    expect(formatLoose(65)).toBe("~1h"); // over the level is fine
   });
 
   it("reads anything from 3 hours up as 3h+", () => {
