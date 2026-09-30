@@ -1,3 +1,5 @@
+import { THRESHOLDS } from "./tiers";
+
 export const DURATIONS = [
   { label: "15m", value: 15 },
   { label: "30m", value: 30 },
@@ -34,9 +36,13 @@ const LOOSE = [
 ];
 export function formatLoose(mins) {
   if (mins >= 180) return "3h+";
-  // ties round up: 45m reads "~1h"
+  // ties round up: 45m is nearest to "1h"
   const [value, label] = LOOSE.reduce((best, b) =>
     Math.abs(b[0] - mins) <= Math.abs(best[0] - mins) ? b : best,
   );
-  return value === mins ? label : `~${label}`;
+  if (value === mins) return label;
+  // never promise a level it didn't reach: 55m on the way to the 1h level
+  // reads "<1h", not "~1h"
+  if (THRESHOLDS.includes(value) && mins < value) return `<${label}`;
+  return `~${label}`;
 }

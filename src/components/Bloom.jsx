@@ -137,7 +137,19 @@ export default function Bloom({
             "calc(20px + var(--safe-top)) 20px calc(28px + var(--safe-bottom))",
         }}
       >
-        <div onClick={closeOnSelf} style={{ maxWidth: 420, margin: "0 auto" }}>
+        <div
+          onClick={closeOnSelf}
+          style={{
+            maxWidth: 420,
+            margin: "0 auto",
+            minHeight: "100%",
+            // the whole pane sits in the middle of the screen; a long day
+            // scrolls from the top instead
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+          }}
+        >
           <div
             ref={headerRef}
             style={{

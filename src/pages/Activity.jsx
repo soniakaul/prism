@@ -14,17 +14,17 @@ import Page from "../components/Page";
 import IntensityMeter from "../components/IntensityMeter";
 import Bloom from "../components/Bloom";
 import Flower, { Sprout } from "../components/Flower";
+import ProjectKey from "../components/ProjectKey";
 
 const GAP = 3;
 const DAY_LABEL_W = 14;
 const DAY_LABEL_COL = DAY_LABEL_W + GAP;
 const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"]; // weeks start Sunday
 
-export default function Activity({ active, pendingBloom, onBloomShown }) {
+export default function Activity({ active }) {
   const [sessions, setSessions] = useState([]);
   const [projects, setProjects] = useState([]);
-  // the open day: { date, origin (tapped square's rect), color, shade,
-  // emphasize (track whose petal grows in last, right after logging) }
+  // the open day: { date, origin (tapped square's rect), color, shade }
   const [bloom, setBloom] = useState(null);
   const [editing, setEditing] = useState(null); // session being edited
   const [editDur, setEditDur] = useState(60);
@@ -35,20 +35,8 @@ export default function Activity({ active, pendingBloom, onBloomShown }) {
 
   useEffect(() => {
     if (!active) return;
-    const pending = pendingBloom;
-    fetchData().then(() => {
-      if (!pending) return;
-      // let the page settle and today's square take its new color first
-      setTimeout(() => {
-        const el = gridWrapRef.current?.querySelector(
-          `[data-date="${pending.date}"]`,
-        );
-        if (el) openDay(pending.date, el, pending.trackId);
-        onBloomShown();
-      }, 450);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch only when the page opens or a new log arrives
-  }, [active, pendingBloom]);
+    fetchData();
+  }, [active]);
 
   useEffect(() => {
     const el = gridWrapRef.current;
@@ -85,8 +73,14 @@ export default function Activity({ active, pendingBloom, onBloomShown }) {
   const known = new Set(projects.map((p) => p.id));
   const logged = sessions.filter((s) => known.has(s.project_id));
 
-  // date -> { tracks, dominant }; the dominant track colors the square
+  // date -> { tracks, dominant }, counting every project (for blooms)
   const days = summarizeDays(logged, projects);
+  // the key can hide projects: they drop out of the squares and the stats
+  // below the grid, but a day's bloom still shows everything
+  const shown = projects.filter((p) => p.show_on_grid !== false);
+  const shownIds = new Set(shown.map((p) => p.id));
+  const shownLogged = logged.filter((s) => shownIds.has(s.project_id));
+  const gridDays = summarizeDays(shownLogged, shown);
 
   // adaptive: WEEKS depends on container width (see ResizeObserver above)
   const todayKey = toDateKey();
@@ -98,8 +92,9 @@ export default function Activity({ active, pendingBloom, onBloomShown }) {
   const timeframe =
     WEEKS >= 52 ? "Past year" : WEEKS >= 26 ? "Past 6 months" : "Past 3 months";
 
-  const totalHours = logged.reduce((a, s) => a + s.duration_minutes, 0) / 60;
-  const thisMonth = logged.filter((s) =>
+  const totalHours =
+    shownLogged.reduce((a, s) => a + s.duration_minutes, 0) / 60;
+  const thisMonth = shownLogged.filter((s) =>
     s.date?.startsWith(todayKey.slice(0, 7)),
   );
   const monthHours = thisMonth.reduce((a, s) => a + s.duration_minutes, 0) / 60;
@@ -115,8 +110,22 @@ export default function Activity({ active, pendingBloom, onBloomShown }) {
     date >= firstDate &&
     date < todayKey;
 
+  // flip a project on or off the grid right away, then save it
+  function toggleShown(p) {
+    const show = p.show_on_grid === false;
+    const flip = (value) =>
+      setProjects((list) =>
+        list.map((x) => (x.id === p.id ? { ...x, show_on_grid: value } : x)),
+      );
+    flip(show);
+    db.setProjectOnGrid(p.id, show).catch((err) => {
+      flip(!show);
+      reportError("Couldn't update the key", err);
+    });
+  }
+
   // the bud starts as an exact copy of the square, so read its look off it
-  function openDay(date, el, emphasize = null) {
+  function openDay(date, el) {
     const look = getComputedStyle(el);
     setEditing(null);
     setConfirmDelete(null);
@@ -125,7 +134,6 @@ export default function Activity({ active, pendingBloom, onBloomShown }) {
       origin: el.getBoundingClientRect(),
       color: look.backgroundColor,
       shade: Number(look.opacity),
-      emphasize,
     });
   }
 
@@ -237,8 +245,8 @@ export default function Activity({ active, pendingBloom, onBloomShown }) {
                   style={{ display: "flex", flexDirection: "column", gap: GAP }}
                 >
                   {week.map((date) => {
-                    const dominant = days.get(date)?.dominant;
-                    const tappable = !!dominant || isRest(date);
+                    const dominant = gridDays.get(date)?.dominant;
+                    const tappable = days.has(date) || isRest(date);
                     // the current week's column runs past today; keep the
                     // slots so rows stay aligned, but don't draw them
                     const future = date > todayKey;
@@ -281,41 +289,7 @@ export default function Activity({ active, pendingBloom, onBloomShown }) {
         </div>
 
         {projects.length > 0 && (
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 16,
-              marginTop: 24,
-            }}
-          >
-            {projects.map((p) => (
-              <div
-                key={p.id}
-                style={{ display: "flex", alignItems: "center", gap: 7 }}
-              >
-                <div
-                  style={{
-                    width: 10,
-                    height: 10,
-                    borderRadius: 2,
-                    background: p.color,
-                    flexShrink: 0,
-                  }}
-                />
-                <div
-                  style={{
-                    fontSize: 12,
-                    letterSpacing: "0.15em",
-                    textTransform: "uppercase",
-                    color: "var(--text-mid)",
-                  }}
-                >
-                  {p.name}
-                </div>
-              </div>
-            ))}
-          </div>
+          <ProjectKey projects={projects} onToggle={toggleShown} />
         )}
 
         <div
@@ -370,11 +344,7 @@ export default function Activity({ active, pendingBloom, onBloomShown }) {
           anchorY={bloomDay ? 0.5 : 0.8}
           renderVisual={(delay) =>
             bloomDay ? (
-              <Flower
-                day={bloomDay}
-                delay={delay}
-                emphasize={bloom.emphasize}
-              />
+              <Flower day={bloomDay} delay={delay} />
             ) : (
               <Sprout delay={delay} />
             )

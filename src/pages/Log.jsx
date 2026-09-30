@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import * as db from "../lib/db";
-import { toDateKey, fromDateKey, logicalToday } from "../lib/dates";
+import { toDateKey, logicalToday, formatDayKey } from "../lib/dates";
 import { DURATIONS, formatDuration, formatLoose } from "../lib/constants";
 import { reportError } from "../lib/toast";
 import {
@@ -14,20 +14,17 @@ import {
 } from "../lib/timer";
 import Page from "../components/Page";
 import IntensityMeter from "../components/IntensityMeter";
-
-const dayLabel = (key) =>
-  fromDateKey(key)
-    .toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-    })
-    .replace(",", " ·");
+import TrackPicker from "../components/TrackPicker";
+import TodayPanel from "../components/TodayPanel";
+import { rememberTrack } from "../lib/recentTracks";
+import { summarizeDay } from "../lib/tiers";
+import { useWide } from "../lib/useWide";
 
 // Three states: pick a track and log a finished session (or start a timer),
 // a running timer, and a stopped timer waiting to be logged. New sessions
-// always go to today (which runs until 3am).
-export default function Log({ active, onLogged }) {
+// always go to today (which runs until 3am). After a log you stay here and
+// today's flower fills out to show it.
+export default function Log({ active }) {
   const [projects, setProjects] = useState([]);
   const [selProj, setSelProj] = useState(null);
   const [selDur, setSelDur] = useState(60);
@@ -36,6 +33,13 @@ export default function Log({ active, onLogged }) {
   const [note, setNote] = useState("");
   const [loading, setLoading] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [todaySessions, setTodaySessions] = useState([]);
+  // the log that just landed: its petal grows out on the Today flower
+  // { key, trackId, minutes, before }; cleared as soon as you pick again
+  const [logged, setLogged] = useState(null);
+  const wide = useWide();
+  const todayRef = useRef(null);
+  const logCount = useRef(0); // keys each log's fill animation
 
   const timer = useTimer();
   const running = !!timer && !timer.stoppedAt;
@@ -53,6 +57,10 @@ export default function Log({ active, onLogged }) {
         );
       })
       .catch((err) => reportError("Couldn't load your projects", err));
+    // for the Today panel
+    db.getSessionsByDate(logicalToday())
+      .then(setTodaySessions)
+      .catch((err) => reportError("Couldn't load today's sessions", err));
   }, [active]);
 
   const trackId = timer ? timer.trackId : selProj;
@@ -61,9 +69,29 @@ export default function Log({ active, onLogged }) {
   const duration = timed ? timerMinutes(timer) : selDur;
   const today = logicalToday();
   const lateNight = today !== toDateKey();
+  // what the Today panel previews: the running clock, or the picked length
+  const pending = trackId && {
+    trackId,
+    minutes: running
+      ? Math.max(1, Math.floor((now - timer.startedAt) / 60000))
+      : duration,
+  };
+
+  function begin() {
+    if (!track) return;
+    rememberTrack(track.id);
+    setLogged(null);
+    startTimer(track);
+  }
+
+  function pickTrack(id) {
+    setSelProj(id);
+    setLogged(null);
+  }
 
   function pickDuration(value) {
     setSelDur(value);
+    setLogged(null);
     if (stopped) setPicked(true);
   }
 
@@ -90,388 +118,391 @@ export default function Log({ active, onLogged }) {
     } finally {
       setLoading(false);
     }
+    rememberTrack(trackId);
+    const byId = new Map(projects.map((p) => [p.id, p]));
+    const before =
+      summarizeDay(todaySessions, byId).tracks.find(
+        (t) => t.track.id === trackId,
+      ) ?? null;
+    try {
+      setTodaySessions(await db.getSessionsByDate(today));
+    } catch (err) {
+      reportError("Couldn't load today's sessions", err);
+    }
+    logCount.current += 1;
+    setLogged({ key: logCount.current, trackId, minutes: duration, before });
     setNote("");
     setPicked(false);
     if (timer) clearTimer();
-    onLogged({ date: today, trackId });
+    // on a phone the flower is above the form; bring it into view to watch
+    if (!wide)
+      todayRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  return (
-    <Page active={active} eyebrow="Record" title="Log Session">
-      <div
-        style={{
-          fontSize: 11,
-          letterSpacing: "0.3em",
-          textTransform: "uppercase",
-          color: "var(--text-dim)",
-          margin: "-24px 0 32px",
-        }}
-      >
-        {lateNight
-          ? `Still ${dayLabel(today)} until 3am`
-          : `For ${dayLabel(today)}`}
-      </div>
+  const dayLine = lateNight
+    ? `Still ${formatDayKey(today)} until 3am`
+    : `For ${formatDayKey(today)}`;
 
-      {running ? (
-        <div
+  // top right on wide screens, the top row on phones: pick a project and
+  // start or stop the timer (the pick is locked to a running timer's project)
+  const controls =
+    projects.length === 0 ? (
+      <div style={{ ...labelStyle, fontSize: 13 }}>
+        No projects yet — add one first
+      </div>
+    ) : (
+      <>
+        <TrackPicker
+          tracks={projects}
+          value={trackId}
+          onChange={pickTrack}
+          disabled={!!timer}
+        />
+        {!stopped && (
+          <button
+            onClick={running ? stopTimer : begin}
+            disabled={!running && !track}
+            style={{
+              height: 50,
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: wide ? "0 20px" : "0 16px",
+              flexShrink: 0,
+              borderRadius: 8,
+              border: "none",
+              background:
+                (running ? timer.color : track?.color) || "var(--surface2)",
+              color: "var(--bg)",
+              fontSize: 14,
+              fontWeight: 700,
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              whiteSpace: "nowrap",
+              cursor: "pointer",
+              transition: "background 0.2s",
+            }}
+          >
+            {running ? (
+              <span
+                style={{
+                  width: 11,
+                  height: 11,
+                  borderRadius: 2,
+                  background: "var(--bg)",
+                }}
+              />
+            ) : (
+              <span
+                style={{
+                  width: 0,
+                  height: 0,
+                  borderTop: "6px solid transparent",
+                  borderBottom: "6px solid transparent",
+                  borderLeft: "10px solid var(--bg)",
+                }}
+              />
+            )}
+            {running ? "Stop" : wide ? "Start timer" : "Start"}
+          </button>
+        )}
+      </>
+    );
+
+  // while a timer runs, the clock takes the form's place, centered
+  const clock = running && (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: 24,
+        width: "100%",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span
+          className="timer-dot"
           style={{
-            maxWidth: 480,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 26,
-            paddingTop: 12,
+            width: 9,
+            height: 9,
+            borderRadius: "50%",
+            background: timer.color,
+          }}
+        />
+        <span
+          style={{
+            fontSize: 14,
+            letterSpacing: "0.2em",
+            textTransform: "uppercase",
+            color: timer.color,
           }}
         >
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {timer.name}
+        </span>
+      </div>
+      <div
+        style={{
+          fontSize: 60,
+          fontWeight: 700,
+          fontVariantNumeric: "tabular-nums",
+          letterSpacing: "0.02em",
+          lineHeight: 1,
+        }}
+      >
+        {formatClock(now - timer.startedAt)}
+      </div>
+      {/* the bars fill up as you work */}
+      <div style={{ width: "100%", maxWidth: 400 }}>
+        <IntensityMeter
+          track={track || { color: timer.color }}
+          minutes={Math.floor((now - timer.startedAt) / 60000)}
+        />
+      </div>
+      <button
+        onClick={() =>
+          confirmCancel ? discardTimer() : setConfirmCancel(true)
+        }
+        onBlur={() => setConfirmCancel(false)}
+        style={{
+          background: "transparent",
+          border: "none",
+          color: confirmCancel ? "#b8716e" : "var(--text-dim)",
+          fontSize: 11,
+          letterSpacing: "0.2em",
+          textTransform: "uppercase",
+          cursor: "pointer",
+        }}
+      >
+        {confirmCancel ? "Tap again to discard" : "Cancel timer"}
+      </button>
+    </div>
+  );
+
+  // log a finished session, or a stopped timer's session
+  const form = (
+    <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
+      {stopped && (
+        <Field label="Timed session">
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 12,
+            }}
+          >
             <span
-              className="timer-dot"
               style={{
-                width: 9,
-                height: 9,
-                borderRadius: "50%",
-                background: timer.color,
-              }}
-            />
-            <span
-              style={{
-                fontSize: 14,
-                letterSpacing: "0.2em",
+                fontSize: 16,
+                fontWeight: 700,
+                letterSpacing: "0.12em",
                 textTransform: "uppercase",
                 color: timer.color,
               }}
             >
               {timer.name}
             </span>
+            <span
+              style={{
+                ...labelStyle,
+                fontSize: 13,
+                color: "var(--text-mid)",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {formatDuration(timerMinutes(timer))} · shows as{" "}
+              {formatLoose(timerMinutes(timer))}
+            </span>
+          </div>
+        </Field>
+      )}
+
+      <Field label={stopped ? "Or pick a length" : "Log a finished session"}>
+        <div
+          style={{
+            display: "flex",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            overflow: "hidden",
+          }}
+        >
+          {DURATIONS.map((d, i) => {
+            const on = !timed && selDur === d.value;
+            return (
+              <button
+                key={d.value}
+                onClick={() => pickDuration(d.value)}
+                style={{
+                  flex: 1,
+                  padding: "12px 4px",
+                  border: "none",
+                  borderRight:
+                    i < DURATIONS.length - 1
+                      ? "1px solid var(--border)"
+                      : "none",
+                  background: on ? "var(--surface2)" : "transparent",
+                  fontSize: 14,
+                  letterSpacing: "0.1em",
+                  textTransform: "uppercase",
+                  color: on ? "var(--text)" : "var(--text-mid)",
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                  textAlign: "center",
+                }}
+              >
+                {d.label}
+              </button>
+            );
+          })}
+        </div>
+      </Field>
+
+      {/* what this session earns, previewed in the track's color */}
+      <Field label="Intensity">
+        <IntensityMeter track={track} minutes={duration} />
+      </Field>
+
+      <Field label="Note — optional">
+        <textarea
+          rows={3}
+          placeholder="what did you get done..."
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          style={{
+            width: "100%",
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            padding: "14px 16px",
+            fontSize: 16,
+            letterSpacing: "0.04em",
+            color: "var(--text)",
+            resize: "none",
+            outline: "none",
+            lineHeight: 1.5,
+          }}
+        />
+      </Field>
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          onClick={submit}
+          disabled={loading || !trackId}
+          style={{
+            flex: 1,
+            padding: "16px",
+            background: "var(--text)",
+            color: "var(--bg)",
+            border: "none",
+            borderRadius: 6,
+            fontSize: 17,
+            fontWeight: 700,
+            letterSpacing: "0.2em",
+            textTransform: "uppercase",
+            cursor: "pointer",
+            opacity: loading || !trackId ? 0.5 : 1,
+            transition: "opacity 0.2s",
+          }}
+        >
+          {loading ? "Logging..." : "Log"}
+        </button>
+        {stopped && (
+          <button
+            onClick={discardTimer}
+            style={{
+              padding: "16px 18px",
+              background: "transparent",
+              color: "var(--text-dim)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              fontSize: 14,
+              letterSpacing: "0.15em",
+              textTransform: "uppercase",
+              cursor: "pointer",
+            }}
+          >
+            Discard
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  const todayFlower = (
+    <div ref={todayRef} style={{ width: "100%", scrollMarginTop: 24 }}>
+      <TodayPanel
+        tracks={projects}
+        todaySessions={todaySessions}
+        pending={pending}
+        logged={logged}
+      />
+    </div>
+  );
+
+  return (
+    <Page
+      active={active}
+      eyebrow="Record"
+      title="Log Session"
+      subtitle={dayLine}
+      actions={controls}
+    >
+      {wide ? (
+        // form (or the running clock) on the left, today's flower on the right
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 440px) minmax(0, 1fr)",
+            gap: 56,
+          }}
+        >
+          <div
+            style={{
+              minHeight: 460,
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: running ? "center" : "flex-start",
+            }}
+          >
+            {running ? clock : form}
           </div>
           <div
             style={{
-              fontSize: 60,
-              fontWeight: 700,
-              fontVariantNumeric: "tabular-nums",
-              letterSpacing: "0.02em",
-              lineHeight: 1,
-            }}
-          >
-            {formatClock(now - timer.startedAt)}
-          </div>
-          {/* the bars fill up as you work */}
-          <div style={{ width: "100%" }}>
-            <IntensityMeter
-              track={track || { color: timer.color }}
-              minutes={Math.floor((now - timer.startedAt) / 60000)}
-            />
-          </div>
-          <button
-            onClick={stopTimer}
-            style={{
+              borderLeft: "1px solid var(--border)",
+              paddingLeft: 48,
               display: "flex",
               alignItems: "center",
-              gap: 12,
-              padding: "16px 44px",
-              borderRadius: 100,
-              border: "none",
-              background: timer.color,
-              color: "var(--bg)",
-              fontSize: 16,
-              fontWeight: 700,
-              letterSpacing: "0.2em",
-              textTransform: "uppercase",
-              cursor: "pointer",
+              justifyContent: "center",
             }}
           >
-            <span
-              style={{
-                width: 12,
-                height: 12,
-                borderRadius: 2,
-                background: "var(--bg)",
-              }}
-            />
-            Stop
-          </button>
-          <button
-            onClick={() =>
-              confirmCancel ? discardTimer() : setConfirmCancel(true)
-            }
-            onBlur={() => setConfirmCancel(false)}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: confirmCancel ? "#b8716e" : "var(--text-dim)",
-              fontSize: 11,
-              letterSpacing: "0.2em",
-              textTransform: "uppercase",
-              cursor: "pointer",
-            }}
-          >
-            {confirmCancel ? "Tap again to discard" : "Cancel timer"}
-          </button>
+            {todayFlower}
+          </div>
         </div>
       ) : (
+        // phones: the flower first, then the form (or the running clock)
         <div
           style={{
             maxWidth: 480,
             display: "flex",
             flexDirection: "column",
-            gap: 32,
+            gap: 36,
           }}
         >
-          {stopped ? (
-            <Field label="Timed session">
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "baseline",
-                  justifyContent: "space-between",
-                  gap: 12,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 16,
-                    fontWeight: 700,
-                    letterSpacing: "0.12em",
-                    textTransform: "uppercase",
-                    color: timer.color,
-                  }}
-                >
-                  {timer.name}
-                </span>
-                <span
-                  style={{
-                    fontSize: 13,
-                    letterSpacing: "0.12em",
-                    textTransform: "uppercase",
-                    color: "var(--text-mid)",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {formatDuration(timerMinutes(timer))} · shows as{" "}
-                  {formatLoose(timerMinutes(timer))}
-                </span>
-              </div>
-            </Field>
-          ) : (
-            <>
-              <Field label="Project">
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {projects.length === 0 ? (
-                    <div
-                      style={{
-                        fontSize: 13,
-                        letterSpacing: "0.15em",
-                        color: "var(--text-dim)",
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      No projects yet — add one first
-                    </div>
-                  ) : (
-                    projects.map((p) => (
-                      <button
-                        key={p.id}
-                        onClick={() => setSelProj(p.id)}
-                        style={{
-                          padding: "9px 18px",
-                          borderRadius: 100,
-                          cursor: "pointer",
-                          fontSize: 14,
-                          letterSpacing: "0.12em",
-                          textTransform: "uppercase",
-                          border:
-                            selProj === p.id
-                              ? "none"
-                              : "1px solid var(--border)",
-                          background:
-                            selProj === p.id ? p.color : "transparent",
-                          color:
-                            selProj === p.id ? "var(--bg)" : "var(--text-mid)",
-                          transition: "all 0.15s",
-                        }}
-                      >
-                        {p.name}
-                      </button>
-                    ))
-                  )}
-                </div>
-              </Field>
-
-              <button
-                onClick={() => track && startTimer(track)}
-                disabled={!track}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 12,
-                  padding: "16px",
-                  borderRadius: 6,
-                  border: "none",
-                  background: track?.color || "var(--surface2)",
-                  color: "var(--bg)",
-                  fontSize: 16,
-                  fontWeight: 700,
-                  letterSpacing: "0.2em",
-                  textTransform: "uppercase",
-                  cursor: track ? "pointer" : "default",
-                  opacity: track ? 1 : 0.5,
-                  transition: "background 0.2s",
-                }}
-              >
-                <span
-                  style={{
-                    width: 0,
-                    height: 0,
-                    borderTop: "7px solid transparent",
-                    borderBottom: "7px solid transparent",
-                    borderLeft: "11px solid var(--bg)",
-                  }}
-                />
-                Start timer
-              </button>
-
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 14,
-                  margin: "-8px 0 -8px",
-                }}
-              >
-                <div
-                  style={{ flex: 1, height: 1, background: "var(--border)" }}
-                />
-                <div
-                  style={{
-                    fontSize: 11,
-                    letterSpacing: "0.3em",
-                    textTransform: "uppercase",
-                    color: "var(--text-dim)",
-                  }}
-                >
-                  or log a finished session
-                </div>
-                <div
-                  style={{ flex: 1, height: 1, background: "var(--border)" }}
-                />
-              </div>
-            </>
-          )}
-
-          <Field label={stopped ? "Or pick a length" : "Duration"}>
-            <div
-              style={{
-                display: "flex",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                overflow: "hidden",
-              }}
-            >
-              {DURATIONS.map((d, i) => {
-                const on = !timed && selDur === d.value;
-                return (
-                  <button
-                    key={d.value}
-                    onClick={() => pickDuration(d.value)}
-                    style={{
-                      flex: 1,
-                      padding: "12px 4px",
-                      border: "none",
-                      borderRight:
-                        i < DURATIONS.length - 1
-                          ? "1px solid var(--border)"
-                          : "none",
-                      background: on ? "var(--surface2)" : "transparent",
-                      fontSize: 14,
-                      letterSpacing: "0.1em",
-                      textTransform: "uppercase",
-                      color: on ? "var(--text)" : "var(--text-mid)",
-                      cursor: "pointer",
-                      transition: "all 0.15s",
-                      textAlign: "center",
-                    }}
-                  >
-                    {d.label}
-                  </button>
-                );
-              })}
-            </div>
-          </Field>
-
-          {/* what this session earns, previewed in the track's color */}
-          <Field label="Intensity">
-            <IntensityMeter track={track} minutes={duration} />
-          </Field>
-
-          <Field label="Note — optional">
-            <textarea
-              rows={3}
-              placeholder="what did you get done..."
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              style={{
-                width: "100%",
-                background: "var(--surface)",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                padding: "14px 16px",
-                fontSize: 16,
-                letterSpacing: "0.04em",
-                color: "var(--text)",
-                resize: "none",
-                outline: "none",
-                lineHeight: 1.5,
-              }}
-            />
-          </Field>
-
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              onClick={submit}
-              disabled={loading || !trackId}
-              style={{
-                flex: 1,
-                padding: "16px",
-                background: "var(--text)",
-                color: "var(--bg)",
-                border: "none",
-                borderRadius: 6,
-                fontSize: 17,
-                fontWeight: 700,
-                letterSpacing: "0.2em",
-                textTransform: "uppercase",
-                cursor: "pointer",
-                opacity: loading || !trackId ? 0.5 : 1,
-                transition: "opacity 0.2s",
-              }}
-            >
-              {loading ? "Logging..." : "Log"}
-            </button>
-            {stopped && (
-              <button
-                onClick={discardTimer}
-                style={{
-                  padding: "16px 18px",
-                  background: "transparent",
-                  color: "var(--text-dim)",
-                  border: "1px solid var(--border)",
-                  borderRadius: 6,
-                  fontSize: 14,
-                  letterSpacing: "0.15em",
-                  textTransform: "uppercase",
-                  cursor: "pointer",
-                }}
-              >
-                Discard
-              </button>
-            )}
-          </div>
+          {todayFlower}
+          {running ? clock : form}
         </div>
       )}
     </Page>
   );
 }
+
+const labelStyle = {
+  fontSize: 11,
+  letterSpacing: "0.3em",
+  textTransform: "uppercase",
+  color: "var(--text-dim)",
+};
 
 function Field({ label, children }) {
   return (
