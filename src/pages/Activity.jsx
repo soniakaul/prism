@@ -1,28 +1,33 @@
 import { useState, useEffect, useRef } from "react";
 import * as db from "../lib/db";
 
-import { toDateKey, weekColumns, monthLabels } from "../lib/dates";
+import { toDateKey, fromDateKey, weekColumns, monthLabels } from "../lib/dates";
+import { summarizeDays, tierFor } from "../lib/tiers";
 import {
   DURATIONS,
   INTENSITIES,
-  INTENSITY_OPACITY,
-  formatDuration,
+  TIER_OPACITY,
+  formatLoose,
 } from "../lib/constants";
 import { reportError } from "../lib/toast";
 import Page from "../components/Page";
+import IntensityMeter from "../components/IntensityMeter";
+import Bloom from "../components/Bloom";
+import Flower, { Sprout } from "../components/Flower";
 
 const GAP = 3;
 const DAY_LABEL_W = 14;
 const DAY_LABEL_COL = DAY_LABEL_W + GAP;
 const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"]; // weeks start Sunday
 
-export default function Activity({ active }) {
+export default function Activity({ active, pendingBloom, onBloomShown }) {
   const [sessions, setSessions] = useState([]);
   const [projects, setProjects] = useState([]);
-  const [modal, setModal] = useState(null); // { date, sessions: [] }
+  // the open day: { date, origin (tapped square's rect), color, shade,
+  // emphasize (track whose petal grows in last, right after logging) }
+  const [bloom, setBloom] = useState(null);
   const [editing, setEditing] = useState(null); // session being edited
   const [editDur, setEditDur] = useState(60);
-  const [editInt, setEditInt] = useState(2);
   const [editNote, setEditNote] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const gridWrapRef = useRef(null);
@@ -30,8 +35,20 @@ export default function Activity({ active }) {
 
   useEffect(() => {
     if (!active) return;
-    fetchData();
-  }, [active]);
+    const pending = pendingBloom;
+    fetchData().then(() => {
+      if (!pending) return;
+      // let the page settle and today's square take its new color first
+      setTimeout(() => {
+        const el = gridWrapRef.current?.querySelector(
+          `[data-date="${pending.date}"]`,
+        );
+        if (el) openDay(pending.date, el, pending.trackId);
+        onBloomShown();
+      }, 450);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch only when the page opens or a new log arrives
+  }, [active, pendingBloom]);
 
   useEffect(() => {
     const el = gridWrapRef.current;
@@ -68,18 +85,8 @@ export default function Activity({ active }) {
   const known = new Set(projects.map((p) => p.id));
   const logged = sessions.filter((s) => known.has(s.project_id));
 
-  const gridMap = {};
-  logged.forEach((s) => {
-    const proj = projects.find((p) => p.id === s.project_id);
-    const existing = gridMap[s.date];
-    if (!existing || s.intensity > existing.intensity) {
-      gridMap[s.date] = {
-        color: proj.color,
-        intensity: s.intensity,
-        date: s.date,
-      };
-    }
-  });
+  // date -> { tracks, dominant }; the dominant track colors the square
+  const days = summarizeDays(logged, projects);
 
   // adaptive: WEEKS depends on container width (see ResizeObserver above)
   const todayKey = toDateKey();
@@ -97,18 +104,40 @@ export default function Activity({ active }) {
   );
   const monthHours = thisMonth.reduce((a, s) => a + s.duration_minutes, 0) / 60;
 
-  function openCell(date) {
-    const daySessions = sessions.filter((s) => s.date === date);
-    if (daySessions.length === 0) return;
-    setModal({ date, sessions: daySessions });
+  // a past day with nothing logged, since you started using Prism
+  const firstDate = logged.reduce(
+    (min, s) => (min === null || s.date < min ? s.date : min),
+    null,
+  );
+  const isRest = (date) =>
+    !days.has(date) &&
+    firstDate !== null &&
+    date >= firstDate &&
+    date < todayKey;
+
+  // the bud starts as an exact copy of the square, so read its look off it
+  function openDay(date, el, emphasize = null) {
+    const look = getComputedStyle(el);
     setEditing(null);
     setConfirmDelete(null);
+    setBloom({
+      date,
+      origin: el.getBoundingClientRect(),
+      color: look.backgroundColor,
+      shade: Number(look.opacity),
+      emphasize,
+    });
   }
+
+  const bloomDay = bloom ? days.get(bloom.date) : null;
+  // strongest track first, then each track's sessions in order
+  const bloomSessions = bloomDay
+    ? bloomDay.tracks.flatMap((t) => t.sessions)
+    : [];
 
   function startEdit(s) {
     setEditing(s);
     setEditDur(s.duration_minutes);
-    setEditInt(s.intensity);
     setEditNote(s.note || "");
     setConfirmDelete(null);
   }
@@ -117,27 +146,23 @@ export default function Activity({ active }) {
     try {
       await db.updateSession(editing.id, {
         duration_minutes: editDur,
-        intensity: editInt,
         note: editNote,
       });
       setEditing(null);
       await fetchData();
-      const updated = await db.getSessionsByDate(modal.date);
-      setModal((m) => ({ ...m, sessions: updated }));
     } catch (err) {
       reportError("Couldn't save your changes", err);
     }
   }
 
   async function deleteSession(id) {
+    const wasLast = bloomSessions.length === 1;
     try {
       await db.deleteSession(id);
       setConfirmDelete(null);
       setEditing(null);
       await fetchData();
-      const updated = await db.getSessionsByDate(modal.date);
-      if (updated.length === 0) setModal(null);
-      else setModal((m) => ({ ...m, sessions: updated }));
+      if (wasLast) setBloom(null);
     } catch (err) {
       reportError("Couldn't delete that session", err);
     }
@@ -212,8 +237,8 @@ export default function Activity({ active }) {
                   style={{ display: "flex", flexDirection: "column", gap: GAP }}
                 >
                   {week.map((date) => {
-                    const cell = gridMap[date];
-                    const hasSession = !!cell;
+                    const dominant = days.get(date)?.dominant;
+                    const tappable = !!dominant || isRest(date);
                     // the current week's column runs past today; keep the
                     // slots so rows stay aligned, but don't draw them
                     const future = date > todayKey;
@@ -221,21 +246,27 @@ export default function Activity({ active }) {
                       <div
                         key={date}
                         title={future ? undefined : date}
-                        onClick={() => openCell(date)}
+                        data-date={date}
+                        onClick={(e) =>
+                          tappable && openDay(date, e.currentTarget)
+                        }
                         style={{
                           width: CELL,
                           height: CELL,
                           borderRadius: 3,
                           flexShrink: 0,
                           visibility: future ? "hidden" : "visible",
-                          background: cell ? cell.color : "var(--surface2)",
-                          opacity: cell ? INTENSITY_OPACITY[cell.intensity] : 1,
-                          cursor: hasSession ? "pointer" : "default",
-                          transition: "transform 0.15s",
+                          background: dominant
+                            ? dominant.track.color
+                            : "var(--surface2)",
+                          opacity: dominant ? TIER_OPACITY[dominant.tier] : 1,
+                          cursor: tappable ? "pointer" : "default",
+                          // color and shade ease in as a day's tier rises
+                          transition:
+                            "transform 0.15s, background-color 0.6s, opacity 0.6s",
                         }}
                         onMouseEnter={(e) => {
-                          if (hasSession)
-                            e.target.style.transform = "scale(1.5)";
+                          if (tappable) e.target.style.transform = "scale(1.5)";
                         }}
                         onMouseLeave={(e) => {
                           e.target.style.transform = "scale(1)";
@@ -305,452 +336,446 @@ export default function Activity({ active }) {
         </div>
       </Page>
 
-      {/* CELL MODAL */}
-      {modal && (
-        <div
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setModal(null);
-              setEditing(null);
-            }
+      {/* BLOOM: the tapped square opens into the day's flower */}
+      {bloom && (
+        <Bloom
+          key={bloom.date}
+          origin={bloom.origin}
+          color={bloom.color}
+          shade={bloom.shade}
+          onClose={() => {
+            setBloom(null);
+            setEditing(null);
           }}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0,0,0,0.7)",
-            backdropFilter: "blur(6px)",
-            zIndex: 100,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <div
-            style={{
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              borderRadius: 14,
-              padding: 36,
-              width: 440,
-              maxHeight: "80vh",
-              overflowY: "auto",
-            }}
-          >
+          header={
             <div
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 24,
+                fontSize: 11,
+                letterSpacing: "0.3em",
+                textTransform: "uppercase",
+                color: "var(--text-dim)",
+                paddingTop: 6,
               }}
             >
-              <div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    letterSpacing: "0.3em",
-                    textTransform: "uppercase",
-                    color: "var(--text-dim)",
-                    marginBottom: 4,
-                  }}
-                >
-                  Sessions on
-                </div>
-                <div
-                  style={{
-                    fontSize: 22,
-                    fontWeight: 700,
-                    letterSpacing: "0.08em",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  {modal.date}
-                </div>
-              </div>
-              <button
-                onClick={() => {
-                  setModal(null);
-                  setEditing(null);
-                }}
+              {fromDateKey(bloom.date)
+                .toLocaleDateString("en-US", {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                })
+                .replace(",", " ·")}
+            </div>
+          }
+          // a sprout grows from the soil line, a flower from its center
+          anchorY={bloomDay ? 0.5 : 0.8}
+          renderVisual={(delay) =>
+            bloomDay ? (
+              <Flower
+                day={bloomDay}
+                delay={delay}
+                emphasize={bloom.emphasize}
+              />
+            ) : (
+              <Sprout delay={delay} />
+            )
+          }
+        >
+          {bloomDay ? (
+            <>
+              <div
                 style={{
-                  background: "transparent",
-                  border: "none",
-                  color: "var(--text-dim)",
-                  fontSize: 20,
-                  cursor: "pointer",
-                  lineHeight: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                  margin: "12px 0 22px",
                 }}
               >
-                ×
-              </button>
-            </div>
-
-            {modal.sessions.map((s) => {
-              const proj = projects.find((p) => p.id === s.project_id);
-              const isEditing = editing?.id === s.id;
-              return (
-                <div key={s.id} style={{ marginBottom: 12 }}>
-                  {!isEditing ? (
+                {bloomDay.tracks.map((t) => (
+                  <div
+                    key={t.track.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      fontSize: 12,
+                      letterSpacing: "0.12em",
+                      textTransform: "uppercase",
+                    }}
+                  >
                     <div
                       style={{
-                        background: "var(--surface2)",
-                        borderRadius: 8,
-                        padding: "16px 18px",
-                        borderLeft: `3px solid ${proj?.color || "var(--border)"}`,
+                        width: 8,
+                        height: 8,
+                        borderRadius: 2,
+                        background: t.track.color,
+                        opacity: TIER_OPACITY[t.tier],
+                        flexShrink: 0,
+                      }}
+                    />
+                    <div
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        color: "var(--text-mid)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
                       }}
                     >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "flex-start",
-                          marginBottom: 8,
-                        }}
-                      >
-                        <div>
-                          <div
-                            style={{
-                              fontSize: 15,
-                              fontWeight: 700,
-                              letterSpacing: "0.08em",
-                              textTransform: "uppercase",
-                              color: proj?.color || "var(--text)",
-                            }}
-                          >
-                            {proj?.name || "Unknown"}
-                          </div>
-                          <div
-                            style={{
-                              fontSize: 12,
-                              letterSpacing: "0.15em",
-                              textTransform: "uppercase",
-                              color: "var(--text-dim)",
-                              marginTop: 3,
-                            }}
-                          >
-                            {formatDuration(s.duration_minutes)} ·{" "}
-                            {INTENSITIES[s.intensity - 1]}
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => startEdit(s)}
-                          style={{
-                            background: "transparent",
-                            border: "1px solid var(--border)",
-                            borderRadius: 4,
-                            padding: "5px 10px",
-                            fontSize: 11,
-                            letterSpacing: "0.15em",
-                            textTransform: "uppercase",
-                            color: "var(--text-dim)",
-                            cursor: "pointer",
-                          }}
-                        >
-                          Edit
-                        </button>
-                      </div>
-                      {s.note && (
+                      {t.track.name}
+                    </div>
+                    <div
+                      style={{ color: "var(--text-dim)", whiteSpace: "nowrap" }}
+                    >
+                      {formatLoose(t.totalMin)} · {INTENSITIES[t.tier]}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div
+              style={{
+                textAlign: "center",
+                fontSize: 12,
+                letterSpacing: "0.3em",
+                textTransform: "uppercase",
+                color: "var(--text-mid)",
+                margin: "0 0 8px",
+              }}
+            >
+              Rest counts
+            </div>
+          )}
+
+          {bloomSessions.map((s) => {
+            const proj = projects.find((p) => p.id === s.project_id);
+            const isEditing = editing?.id === s.id;
+            return (
+              <div key={s.id} style={{ marginBottom: 12 }}>
+                {!isEditing ? (
+                  <div
+                    style={{
+                      background: "var(--surface2)",
+                      borderRadius: 8,
+                      padding: "16px 18px",
+                      borderLeft: `3px solid ${proj?.color || "var(--border)"}`,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        marginBottom: 8,
+                      }}
+                    >
+                      <div>
                         <div
                           style={{
-                            fontSize: 14,
-                            color: "var(--text-mid)",
-                            letterSpacing: "0.04em",
-                            lineHeight: 1.5,
+                            fontSize: 15,
+                            fontWeight: 700,
+                            letterSpacing: "0.08em",
+                            textTransform: "uppercase",
+                            color: proj?.color || "var(--text)",
                           }}
                         >
-                          {s.note}
+                          {proj?.name || "Unknown"}
                         </div>
-                      )}
+                        <div
+                          style={{
+                            fontSize: 12,
+                            letterSpacing: "0.15em",
+                            textTransform: "uppercase",
+                            color: "var(--text-dim)",
+                            marginTop: 3,
+                          }}
+                        >
+                          {formatLoose(s.duration_minutes)}
+                          {proj &&
+                            ` · ${INTENSITIES[tierFor(s.duration_minutes)]}`}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => startEdit(s)}
+                        style={{
+                          background: "transparent",
+                          border: "1px solid var(--border)",
+                          borderRadius: 4,
+                          padding: "5px 10px",
+                          fontSize: 11,
+                          letterSpacing: "0.15em",
+                          textTransform: "uppercase",
+                          color: "var(--text-dim)",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Edit
+                      </button>
                     </div>
-                  ) : (
-                    <div
-                      style={{
-                        background: "var(--surface2)",
-                        borderRadius: 8,
-                        padding: "16px 18px",
-                        borderLeft: `3px solid ${modalProj?.color || "var(--border)"}`,
-                      }}
-                    >
+                    {s.note && (
                       <div
                         style={{
-                          fontSize: 13,
-                          fontWeight: 700,
-                          letterSpacing: "0.1em",
-                          textTransform: "uppercase",
-                          color: modalProj?.color,
-                          marginBottom: 14,
-                        }}
-                      >
-                        {modalProj?.name}
-                      </div>
-
-                      {/* duration */}
-                      <div
-                        style={{
-                          fontSize: 10,
-                          letterSpacing: "0.25em",
-                          textTransform: "uppercase",
-                          color: "var(--text-dim)",
-                          marginBottom: 8,
-                        }}
-                      >
-                        Duration
-                      </div>
-                      <div
-                        style={{
-                          display: "flex",
-                          border: "1px solid var(--border)",
-                          borderRadius: 6,
-                          overflow: "hidden",
-                          marginBottom: 16,
-                        }}
-                      >
-                        {DURATIONS.map((d, i) => (
-                          <button
-                            key={d.value}
-                            onClick={() => setEditDur(d.value)}
-                            style={{
-                              flex: 1,
-                              padding: "9px 4px",
-                              border: "none",
-                              borderRight:
-                                i < DURATIONS.length - 1
-                                  ? "1px solid var(--border)"
-                                  : "none",
-                              background:
-                                editDur === d.value
-                                  ? "var(--surface)"
-                                  : "transparent",
-
-                              fontSize: 13,
-                              letterSpacing: "0.1em",
-                              textTransform: "uppercase",
-                              color:
-                                editDur === d.value
-                                  ? "var(--text)"
-                                  : "var(--text-dim)",
-                              cursor: "pointer",
-                              textAlign: "center",
-                            }}
-                          >
-                            {d.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* intensity */}
-                      <div
-                        style={{
-                          fontSize: 10,
-                          letterSpacing: "0.25em",
-                          textTransform: "uppercase",
-                          color: "var(--text-dim)",
-                          marginBottom: 8,
-                        }}
-                      >
-                        Intensity
-                      </div>
-                      <div
-                        style={{ display: "flex", gap: 6, marginBottom: 16 }}
-                      >
-                        {INTENSITIES.map((label, i) => {
-                          const level = i + 1;
-                          return (
-                            <div
-                              key={i}
-                              style={{
-                                flex: 1,
-                                display: "flex",
-                                flexDirection: "column",
-                                alignItems: "center",
-                                gap: 4,
-                              }}
-                            >
-                              <div
-                                onClick={() => setEditInt(level)}
-                                style={{
-                                  width: "100%",
-                                  height: 32,
-                                  borderRadius: 4,
-                                  cursor: "pointer",
-                                  background: modalProj?.color || "#fff",
-                                  opacity: INTENSITY_OPACITY[level],
-                                  border:
-                                    editInt === level
-                                      ? "2px solid var(--text)"
-                                      : "1px solid transparent",
-                                  transition: "border-color 0.15s",
-                                }}
-                              />
-                              <div
-                                style={{
-                                  fontSize: 9,
-                                  letterSpacing: "0.1em",
-                                  textTransform: "uppercase",
-                                  color: "var(--text-dim)",
-                                }}
-                              >
-                                {label}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* note */}
-                      <div
-                        style={{
-                          fontSize: 10,
-                          letterSpacing: "0.25em",
-                          textTransform: "uppercase",
-                          color: "var(--text-dim)",
-                          marginBottom: 8,
-                        }}
-                      >
-                        Note
-                      </div>
-                      <textarea
-                        value={editNote}
-                        onChange={(e) => setEditNote(e.target.value)}
-                        rows={2}
-                        style={{
-                          width: "100%",
-                          background: "var(--surface)",
-                          border: "1px solid var(--border)",
-                          borderRadius: 6,
-                          padding: "10px 12px",
-                          fontSize: 15,
-                          color: "var(--text)",
-                          resize: "none",
-                          outline: "none",
-                          marginBottom: 14,
+                          fontSize: 14,
+                          color: "var(--text-mid)",
+                          letterSpacing: "0.04em",
                           lineHeight: 1.5,
                         }}
-                      />
+                      >
+                        {s.note}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    style={{
+                      background: "var(--surface2)",
+                      borderRadius: 8,
+                      padding: "16px 18px",
+                      borderLeft: `3px solid ${modalProj?.color || "var(--border)"}`,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 700,
+                        letterSpacing: "0.1em",
+                        textTransform: "uppercase",
+                        color: modalProj?.color,
+                        marginBottom: 14,
+                      }}
+                    >
+                      {modalProj?.name}
+                    </div>
 
-                      <div
+                    {/* duration */}
+                    <div
+                      style={{
+                        fontSize: 10,
+                        letterSpacing: "0.25em",
+                        textTransform: "uppercase",
+                        color: "var(--text-dim)",
+                        marginBottom: 8,
+                      }}
+                    >
+                      Duration
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        border: "1px solid var(--border)",
+                        borderRadius: 6,
+                        overflow: "hidden",
+                        marginBottom: 16,
+                      }}
+                    >
+                      {DURATIONS.map((d, i) => (
+                        <button
+                          key={d.value}
+                          onClick={() => setEditDur(d.value)}
+                          style={{
+                            flex: 1,
+                            padding: "9px 4px",
+                            border: "none",
+                            borderRight:
+                              i < DURATIONS.length - 1
+                                ? "1px solid var(--border)"
+                                : "none",
+                            background:
+                              editDur === d.value
+                                ? "var(--surface)"
+                                : "transparent",
+
+                            fontSize: 13,
+                            letterSpacing: "0.1em",
+                            textTransform: "uppercase",
+                            color:
+                              editDur === d.value
+                                ? "var(--text)"
+                                : "var(--text-dim)",
+                            cursor: "pointer",
+                            textAlign: "center",
+                          }}
+                        >
+                          {d.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* intensity preview */}
+                    <div
+                      style={{
+                        fontSize: 10,
+                        letterSpacing: "0.25em",
+                        textTransform: "uppercase",
+                        color: "var(--text-dim)",
+                        marginBottom: 8,
+                      }}
+                    >
+                      Intensity
+                    </div>
+                    <div style={{ marginBottom: 16 }}>
+                      <IntensityMeter
+                        track={modalProj}
+                        minutes={editDur}
+                        height={32}
+                        labelSize={9}
+                      />
+                    </div>
+
+                    {/* note */}
+                    <div
+                      style={{
+                        fontSize: 10,
+                        letterSpacing: "0.25em",
+                        textTransform: "uppercase",
+                        color: "var(--text-dim)",
+                        marginBottom: 8,
+                      }}
+                    >
+                      Note
+                    </div>
+                    <textarea
+                      value={editNote}
+                      onChange={(e) => setEditNote(e.target.value)}
+                      rows={2}
+                      style={{
+                        width: "100%",
+                        background: "var(--surface)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 6,
+                        padding: "10px 12px",
+                        fontSize: 15,
+                        color: "var(--text)",
+                        resize: "none",
+                        outline: "none",
+                        marginBottom: 14,
+                        lineHeight: 1.5,
+                      }}
+                    />
+
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: 8,
+                        alignItems: "center",
+                      }}
+                    >
+                      <button
+                        onClick={saveEdit}
                         style={{
-                          display: "flex",
-                          flexWrap: "wrap",
-                          gap: 8,
-                          alignItems: "center",
+                          padding: "8px 18px",
+                          background: "var(--text)",
+                          color: "var(--bg)",
+                          border: "none",
+                          borderRadius: 6,
+                          fontSize: 13,
+                          fontWeight: 700,
+                          letterSpacing: "0.15em",
+                          textTransform: "uppercase",
+                          cursor: "pointer",
                         }}
                       >
-                        <button
-                          onClick={saveEdit}
-                          style={{
-                            padding: "8px 18px",
-                            background: "var(--text)",
-                            color: "var(--bg)",
-                            border: "none",
-                            borderRadius: 6,
-                            fontSize: 13,
-                            fontWeight: 700,
-                            letterSpacing: "0.15em",
-                            textTransform: "uppercase",
-                            cursor: "pointer",
-                          }}
-                        >
-                          Save
-                        </button>
-                        <button
-                          onClick={() => setEditing(null)}
-                          style={{
-                            padding: "8px 14px",
-                            background: "transparent",
-                            color: "var(--text-dim)",
-                            border: "1px solid var(--border)",
-                            borderRadius: 6,
-                            fontSize: 13,
-                            letterSpacing: "0.15em",
-                            textTransform: "uppercase",
-                            cursor: "pointer",
-                          }}
-                        >
-                          Cancel
-                        </button>
-                        <div style={{ marginLeft: "auto" }}>
-                          {confirmDelete === s.id ? (
-                            <div
+                        Save
+                      </button>
+                      <button
+                        onClick={() => setEditing(null)}
+                        style={{
+                          padding: "8px 14px",
+                          background: "transparent",
+                          color: "var(--text-dim)",
+                          border: "1px solid var(--border)",
+                          borderRadius: 6,
+                          fontSize: 13,
+                          letterSpacing: "0.15em",
+                          textTransform: "uppercase",
+                          cursor: "pointer",
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <div style={{ marginLeft: "auto" }}>
+                        {confirmDelete === s.id ? (
+                          <div
+                            style={{
+                              display: "flex",
+                              flexWrap: "wrap",
+                              gap: 6,
+                              alignItems: "center",
+                            }}
+                          >
+                            <span
                               style={{
-                                display: "flex",
-                                flexWrap: "wrap",
-                                gap: 6,
-                                alignItems: "center",
+                                fontSize: 11,
+                                color: "var(--text-dim)",
+                                letterSpacing: "0.1em",
+                                textTransform: "uppercase",
                               }}
                             >
-                              <span
-                                style={{
-                                  fontSize: 11,
-                                  color: "var(--text-dim)",
-                                  letterSpacing: "0.1em",
-                                  textTransform: "uppercase",
-                                }}
-                              >
-                                Sure?
-                              </span>
-                              <button
-                                onClick={() => deleteSession(s.id)}
-                                style={{
-                                  padding: "8px 14px",
-                                  background: "#b8716e",
-                                  color: "var(--bg)",
-                                  border: "none",
-                                  borderRadius: 6,
-                                  fontSize: 13,
-                                  fontWeight: 700,
-                                  letterSpacing: "0.15em",
-                                  textTransform: "uppercase",
-                                  cursor: "pointer",
-                                }}
-                              >
-                                Delete
-                              </button>
-                              <button
-                                onClick={() => setConfirmDelete(null)}
-                                style={{
-                                  padding: "8px 10px",
-                                  background: "transparent",
-                                  color: "var(--text-dim)",
-                                  border: "1px solid var(--border)",
-                                  borderRadius: 6,
-                                  fontSize: 13,
-                                  letterSpacing: "0.15em",
-                                  textTransform: "uppercase",
-                                  cursor: "pointer",
-                                }}
-                              >
-                                No
-                              </button>
-                            </div>
-                          ) : (
+                              Sure?
+                            </span>
                             <button
-                              onClick={() => setConfirmDelete(s.id)}
+                              onClick={() => deleteSession(s.id)}
                               style={{
                                 padding: "8px 14px",
+                                background: "#b8716e",
+                                color: "var(--bg)",
+                                border: "none",
+                                borderRadius: 6,
+                                fontSize: 13,
+                                fontWeight: 700,
+                                letterSpacing: "0.15em",
+                                textTransform: "uppercase",
+                                cursor: "pointer",
+                              }}
+                            >
+                              Delete
+                            </button>
+                            <button
+                              onClick={() => setConfirmDelete(null)}
+                              style={{
+                                padding: "8px 10px",
                                 background: "transparent",
-                                color: "#b8716e",
-                                border: "1px solid #b8716e",
+                                color: "var(--text-dim)",
+                                border: "1px solid var(--border)",
                                 borderRadius: 6,
                                 fontSize: 13,
                                 letterSpacing: "0.15em",
                                 textTransform: "uppercase",
                                 cursor: "pointer",
-                                opacity: 0.7,
                               }}
                             >
-                              Delete
+                              No
                             </button>
-                          )}
-                        </div>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDelete(s.id)}
+                            style={{
+                              padding: "8px 14px",
+                              background: "transparent",
+                              color: "#b8716e",
+                              border: "1px solid #b8716e",
+                              borderRadius: 6,
+                              fontSize: 13,
+                              letterSpacing: "0.15em",
+                              textTransform: "uppercase",
+                              cursor: "pointer",
+                              opacity: 0.7,
+                            }}
+                          >
+                            Delete
+                          </button>
+                        )}
                       </div>
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </Bloom>
       )}
     </>
   );

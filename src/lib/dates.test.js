@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { toDateKey, addDays, weekColumns, monthLabels } from "./dates";
+import {
+  toDateKey,
+  addDays,
+  weekColumns,
+  monthLabels,
+  logicalToday,
+  isOpen,
+} from "./dates";
 
 describe("toDateKey", () => {
   it("uses the local day, even late in the evening", () => {
@@ -66,5 +73,43 @@ describe("monthLabels", () => {
     const cols = weekColumns("2026-09-23", 13, 0); // starts Jun 28
     const labels = monthLabels(cols, 1);
     expect(labels[0]).toEqual({ index: 0, text: "JUN" });
+  });
+});
+
+describe("logicalToday", () => {
+  it("is the calendar day during the day", () => {
+    expect(logicalToday(new Date(2026, 8, 23, 9, 0))).toBe("2026-09-23");
+    expect(logicalToday(new Date(2026, 8, 23, 23, 59))).toBe("2026-09-23");
+  });
+
+  it("stays on yesterday until the lock hour", () => {
+    expect(logicalToday(new Date(2026, 8, 24, 0, 30))).toBe("2026-09-23");
+    expect(logicalToday(new Date(2026, 8, 24, 2, 59))).toBe("2026-09-23");
+    expect(logicalToday(new Date(2026, 8, 24, 3, 0))).toBe("2026-09-24");
+  });
+
+  it("respects a custom lock hour", () => {
+    expect(logicalToday(new Date(2026, 8, 24, 0, 30), 0)).toBe("2026-09-24");
+    expect(logicalToday(new Date(2026, 8, 24, 4, 30), 5)).toBe("2026-09-23");
+  });
+
+  it("handles the lock across a month boundary", () => {
+    expect(logicalToday(new Date(2026, 9, 1, 1, 0))).toBe("2026-09-30");
+  });
+});
+
+describe("isOpen", () => {
+  const lateNight = new Date(2026, 8, 24, 1, 0);
+
+  it("keeps the previous day open in the grace window", () => {
+    expect(isOpen("2026-09-23", lateNight)).toBe(true);
+    expect(isOpen("2026-09-24", lateNight)).toBe(false);
+  });
+
+  it("locks every other day", () => {
+    const noon = new Date(2026, 8, 23, 12, 0);
+    expect(isOpen("2026-09-23", noon)).toBe(true);
+    expect(isOpen("2026-09-22", noon)).toBe(false);
+    expect(isOpen("2026-09-24", noon)).toBe(false);
   });
 });

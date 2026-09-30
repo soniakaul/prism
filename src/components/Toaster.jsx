@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { onToast } from "../lib/toast";
+import { isDemo } from "../lib/db";
 
 export default function Toaster() {
   const [items, setItems] = useState([]);
@@ -17,7 +18,8 @@ export default function Toaster() {
     [],
   );
 
-  if (items.length === 0) return null;
+  // keep filming shots clean
+  if (items.length === 0 || isDemo()) return null;
 
   return (
     <div

@@ -2,10 +2,20 @@ import { useState } from "react";
 import { supabase } from "../lib/supabase";
 import { clearGuestData, guestCreatedAt } from "../lib/db";
 import { reportError } from "../lib/toast";
+import { clearTimer } from "../lib/timer";
 import Page from "../components/Page";
 
-export default function Account({ active, session, guest, onLeaveGuest }) {
+export default function Account({
+  active,
+  session,
+  guest,
+  demo,
+  onLeaveGuest,
+}) {
   const [confirmClear, setConfirmClear] = useState(false);
+
+  // demo mode is for filming: never show the real account behind it
+  if (demo) return <DemoAccount active={active} />;
 
   const email = guest ? "Guest" : session?.user?.email || "";
   const initial = guest ? "G" : email[0]?.toUpperCase() || "?";
@@ -22,6 +32,7 @@ export default function Account({ active, session, guest, onLeaveGuest }) {
   async function signOut() {
     const { error } = await supabase.auth.signOut();
     if (error) reportError("Couldn't sign out", error);
+    else clearTimer(); // the timer lives on this device, not the account
   }
 
   function handleClear() {
@@ -245,6 +256,23 @@ export default function Account({ active, session, guest, onLeaveGuest }) {
           Sign Out
         </button>
       )}
+    </Page>
+  );
+}
+
+function DemoAccount({ active }) {
+  return (
+    <Page active={active} eyebrow="Demo" title="Account">
+      <div
+        style={{
+          fontSize: 13,
+          letterSpacing: "0.15em",
+          textTransform: "uppercase",
+          color: "var(--text-dim)",
+        }}
+      >
+        Demo mode · sample data, nothing is saved
+      </div>
     </Page>
   );
 }

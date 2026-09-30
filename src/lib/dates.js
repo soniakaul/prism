@@ -58,3 +58,21 @@ export function monthLabels(cols, minGap = 3) {
   }
   return labels;
 }
+
+// The day you're logging for. A day stays open until lockHour the next
+// morning (default 3:00), so a 1am session still counts for yesterday.
+export const DEFAULT_LOCK_HOUR = 3;
+
+export function logicalToday(now = new Date(), lockHour = DEFAULT_LOCK_HOUR) {
+  const key = toDateKey(now);
+  return now.getHours() < lockHour ? addDays(key, -1) : key;
+}
+
+// Only the current logical day can be logged or edited; past days are locked.
+export function isOpen(
+  dateKey,
+  now = new Date(),
+  lockHour = DEFAULT_LOCK_HOUR,
+) {
+  return dateKey === logicalToday(now, lockHour);
+}
