@@ -273,6 +273,26 @@ function DemoAccount({ active }) {
       >
         Demo mode · sample data, nothing is saved
       </div>
+      {/* leaves the demo for the real app (sign-in screen) */}
+      <a
+        href={window.location.origin}
+        style={{
+          display: "block",
+          maxWidth: 480,
+          marginTop: 28,
+          padding: "14px",
+          border: "1px solid var(--border)",
+          borderRadius: 6,
+          fontSize: 15,
+          letterSpacing: "0.2em",
+          textTransform: "uppercase",
+          textAlign: "center",
+          textDecoration: "none",
+          color: "var(--text)",
+        }}
+      >
+        Sign in to start your own
+      </a>
     </Page>
   );
 }

@@ -1,5 +1,5 @@
 import { supabase, DEV_MODE, DEV_USER_ID } from "./supabase";
-import { DEMO_ENABLED, generateDemo } from "./demo";
+import { DEMO_ENABLED, DEMO_CLEAN, generateDemo } from "./demo";
 
 const GUEST_FLAG = "prism_guest";
 const GUEST_PROJECTS = "prism_guest_projects";
@@ -30,6 +30,10 @@ export function guestCreatedAt() {
 export function isDemo() {
   return DEMO_ENABLED;
 }
+// demo without the sample-data tag, for filming
+export function isCleanDemo() {
+  return DEMO_ENABLED && DEMO_CLEAN;
+}
 
 // Guest and demo mode share the local code path. Guest data lives in
 // localStorage; demo data lives in memory and resets on reload.
@@ -46,8 +50,7 @@ function isLocal() {
 }
 
 function readG(key) {
-  // the literal DEV check lets production builds drop demo data entirely
-  if (import.meta.env.DEV && isDemo()) return [...demoData()[key]];
+  if (isDemo()) return [...demoData()[key]];
   try {
     return JSON.parse(localStorage.getItem(key) || "[]");
   } catch {
@@ -55,7 +58,7 @@ function readG(key) {
   }
 }
 function writeG(key, val) {
-  if (import.meta.env.DEV && isDemo()) demoData()[key] = val;
+  if (isDemo()) demoData()[key] = val;
   else localStorage.setItem(key, JSON.stringify(val));
 }
 function uid() {
