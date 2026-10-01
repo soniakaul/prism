@@ -1,13 +1,16 @@
-// Demo / filming mode (dev only, open the app with ?demo=1): a year of
-// made-up but plausible sessions on made-up tracks. Generated from a fixed
-// seed so every reload shows the same garden and shots can be re-recorded.
-// Nothing here is real data, and nothing is saved: edits live in memory.
+// Demo mode (open the app with ?demo=1, on the live site too, for the resume
+// link): a year of made-up but plausible sessions on made-up tracks, no login.
+// Generated from a fixed seed so every visit shows the same garden and shots
+// can be re-recorded. Nothing here is real data, and nothing is saved: edits
+// live in memory. Add &clean to hide the sample-data tag when filming.
 import { toDateKey, addDays, fromDateKey } from "./dates";
 
-export const DEMO_ENABLED =
-  import.meta.env.DEV &&
-  typeof window !== "undefined" &&
-  new URLSearchParams(window.location.search).has("demo");
+const params =
+  typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search)
+    : new URLSearchParams();
+export const DEMO_ENABLED = params.has("demo");
+export const DEMO_CLEAN = params.has("clean");
 
 const TRACKS = [
   {
